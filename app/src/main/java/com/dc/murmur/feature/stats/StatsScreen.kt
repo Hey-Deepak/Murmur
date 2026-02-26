@@ -1,20 +1,29 @@
 package com.dc.murmur.feature.stats
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dc.murmur.ai.BridgeStatus
+import com.dc.murmur.ai.BridgeUiState
 import com.dc.murmur.ai.ModelDownloadState
 import com.dc.murmur.ai.SpeechModelInfo
 import com.dc.murmur.ai.SpeechProvider
@@ -52,6 +61,12 @@ fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
     val activeModelId by viewModel.activeModelId.collectAsState()
 
     val analysisLog by viewModel.analysisLog.collectAsState()
+
+    // Bridge state
+    val bridgeState by viewModel.bridgeUiState.collectAsState()
+    val bridgePort by viewModel.claudeBridgePort.collectAsState()
+    val bridgeAutoStart by viewModel.claudeBridgeAutoStart.collectAsState()
+    val isTermuxInstalled by viewModel.isTermuxInstalled.collectAsState()
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
@@ -279,6 +294,22 @@ fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
                 }
             }
 
+            // --- Claude Bridge ---
+            item {
+                ClaudeBridgeCard(
+                    bridgeState = bridgeState,
+                    isTermuxInstalled = isTermuxInstalled,
+                    port = bridgePort,
+                    autoStart = bridgeAutoStart,
+                    onStartClick = viewModel::startBridge,
+                    onStopClick = viewModel::stopBridge,
+                    onRefreshClick = viewModel::checkBridgeStatus,
+                    onInstallScripts = viewModel::installBridgeScripts,
+                    onPortChange = viewModel::setClaudeBridgePort,
+                    onAutoStartChange = viewModel::setClaudeBridgeAutoStart
+                )
+            }
+
             item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
@@ -455,6 +486,169 @@ private fun SpeechModelRow(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClaudeBridgeCard(
+    bridgeState: BridgeUiState,
+    isTermuxInstalled: Boolean,
+    port: Int,
+    autoStart: Boolean,
+    onStartClick: () -> Unit,
+    onStopClick: () -> Unit,
+    onRefreshClick: () -> Unit,
+    onInstallScripts: () -> Unit,
+    onPortChange: (Int) -> Unit,
+    onAutoStartChange: (Boolean) -> Unit
+) {
+    val status = bridgeState.status
+    val isTransitioning = status == BridgeStatus.STARTING || status == BridgeStatus.STOPPING
+
+    val statusColor = when (status) {
+        BridgeStatus.RUNNING -> Color(0xFF4CAF50)   // green
+        BridgeStatus.STARTING,
+        BridgeStatus.STOPPING -> Color(0xFFFFC107)   // amber
+        BridgeStatus.STOPPED -> Color(0xFFF44336)    // red
+        BridgeStatus.UNKNOWN -> Color.Gray
+    }
+
+    val statusText = when (status) {
+        BridgeStatus.RUNNING -> "Running"
+        BridgeStatus.STARTING -> "Starting..."
+        BridgeStatus.STOPPING -> "Stopping..."
+        BridgeStatus.STOPPED -> "Stopped"
+        BridgeStatus.UNKNOWN -> "Unknown"
+    }
+
+    var portText by remember(port) { mutableStateOf(port.toString()) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Title row with status dot and refresh
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "Claude Bridge",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(statusColor)
+                )
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                IconButton(onClick = onRefreshClick, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Refresh status",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            if (!isTermuxInstalled) {
+                Text(
+                    "Termux is not installed. Install Termux from F-Droid to use the Claude Bridge.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                // Error message
+                bridgeState.errorMessage?.let { error ->
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                // Start / Stop button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (status == BridgeStatus.RUNNING) {
+                        Button(
+                            onClick = onStopClick,
+                            enabled = !isTransitioning,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Stop Bridge")
+                        }
+                    } else {
+                        Button(
+                            onClick = onStartClick,
+                            enabled = !isTransitioning,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (isTransitioning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(if (status == BridgeStatus.STARTING) "Starting..." else "Start Bridge")
+                        }
+                    }
+                }
+
+                // Install / Update Scripts
+                OutlinedButton(
+                    onClick = onInstallScripts,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Install / Update Scripts")
+                }
+
+                // Port field
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { value ->
+                        portText = value
+                        val parsed = value.toIntOrNull()
+                        if (parsed != null && parsed in 1024..65535) {
+                            onPortChange(parsed)
+                        }
+                    },
+                    label = { Text("Bridge port") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    isError = portText.toIntOrNull()?.let { it !in 1024..65535 } ?: true,
+                    supportingText = {
+                        if (portText.toIntOrNull()?.let { it !in 1024..65535 } != false) {
+                            Text("Port must be 1024-65535")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Auto-start toggle
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Auto-start with recording")
+                    Switch(checked = autoStart, onCheckedChange = onAutoStartChange)
+                }
             }
         }
     }

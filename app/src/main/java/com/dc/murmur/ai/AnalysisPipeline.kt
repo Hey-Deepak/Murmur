@@ -29,9 +29,18 @@ class AnalysisPipeline(
     private var currentTranscriber: Transcriber? = null
 
     private var onLog: ((String) -> Unit)? = null
+    private var onStep: ((String) -> Unit)? = null
 
     fun setLogCallback(callback: (String) -> Unit) {
         onLog = callback
+    }
+
+    fun setStepCallback(callback: (String) -> Unit) {
+        onStep = callback
+    }
+
+    private fun step(message: String) {
+        onStep?.invoke(message)
     }
 
     private fun log(message: String) {
@@ -64,6 +73,7 @@ class AnalysisPipeline(
             log("Created ${modelInfo.provider.name} transcriber")
         }
         currentTranscriber!!.initialize(modelDir)
+        currentModelId = modelInfo.id
         log("Transcriber initialized")
 
         if (claudeAnalyzer.isAvailable()) {
@@ -87,13 +97,16 @@ class AnalysisPipeline(
         log("--- Chunk #$chunkId: $fileName ---")
 
         // 1. Decode M4A -> PCM
+        step("Step 1/3 · Decoding audio (MediaCodec)")
         log("Decoding audio...")
         val pcm = audioDecoder.decode(filePath)
         val durationSec = pcm.data.size / 2f / pcm.sampleRate
         log("Decoded: ${String.format("%.1f", durationSec)}s @ ${pcm.sampleRate}Hz")
 
         // 2. Transcribe PCM -> text
-        log("Transcribing with ${currentModelId ?: "unknown"}...")
+        val modelName = currentModelId ?: "unknown"
+        step("Step 2/3 · Transcribing ($modelName)")
+        log("Transcribing with $modelName...")
         val text = transcriber.transcribe(pcm.data, pcm.sampleRate)
         if (text.isBlank()) {
             log("Result: (empty/silence)")
@@ -103,6 +116,7 @@ class AnalysisPipeline(
 
         // 3 & 4. NLP — Claude Code if available, otherwise MobileBERT + rules
         return if (claudeAnalyzer.isAvailable()) {
+            step("Step 3/3 · Summarizing (Claude Code)")
             log("Analyzing with Claude Code...")
             val analysis = claudeAnalyzer.analyze(text)
             log("Claude → sentiment=${analysis.sentiment} (${String.format("%.2f", analysis.sentimentScore)})")
@@ -116,6 +130,7 @@ class AnalysisPipeline(
             )
         } else {
             // Fallback: on-device MobileBERT + rule-based extraction
+            step("Step 3/3 · Analyzing (MobileBERT on-device)")
             val sentiment = sentimentAnalyzer.analyze(text)
             log("Sentiment: ${sentiment.sentiment} (${String.format("%.2f", sentiment.score)})")
 

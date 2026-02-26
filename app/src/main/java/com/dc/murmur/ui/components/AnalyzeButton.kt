@@ -1,7 +1,9 @@
 package com.dc.murmur.ui.components
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CheckCircle
@@ -27,10 +30,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dc.murmur.ai.AnalysisStatus
 import com.dc.murmur.ai.AnalysisUiState
+import com.dc.murmur.ui.theme.GradientTealEnd
+import com.dc.murmur.ui.theme.GradientTealStart
 
 @Composable
 fun AnalyzeNowCard(
@@ -70,7 +77,7 @@ fun AnalyzeNowCard(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Button(
+                                GradientButton(
                                     onClick = onAnalyzeClick,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
@@ -80,7 +87,7 @@ fun AnalyzeNowCard(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Analyze Now")
+                                    Text("Analyze Now", fontWeight = FontWeight.SemiBold)
                                 }
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -104,7 +111,9 @@ fun AnalyzeNowCard(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
@@ -112,7 +121,11 @@ fun AnalyzeNowCard(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         }
 
                         AnalysisStatus.RUNNING -> {
@@ -123,8 +136,26 @@ fun AnalyzeNowCard(
                             if (state.total > 0) {
                                 LinearProgressIndicator(
                                     progress = { state.progress.toFloat() / state.total },
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
                                 )
+                            }
+                            if (state.currentStep.isNotBlank()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = state.currentStep,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                             Spacer(Modifier.height(4.dp))
                             OutlinedButton(
@@ -154,7 +185,7 @@ fun AnalyzeNowCard(
                             }
                             if (unprocessedCount > 0) {
                                 Spacer(Modifier.height(4.dp))
-                                Button(
+                                GradientButton(
                                     onClick = onAnalyzeClick,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
@@ -164,7 +195,7 @@ fun AnalyzeNowCard(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Analyze $unprocessedCount New")
+                                    Text("Analyze $unprocessedCount New", fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
@@ -184,15 +215,49 @@ fun AnalyzeNowCard(
                                     color = MaterialTheme.colorScheme.error
                                 )
                             }
-                            Button(
+                            GradientButton(
                                 onClick = onAnalyzeClick,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Retry")
+                                Text("Retry", fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GradientButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+        contentPadding = ButtonDefaults.ContentPadding
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.horizontalGradient(
+                        listOf(GradientTealStart, GradientTealEnd)
+                    ),
+                    shape = RoundedCornerShape(50)
+                )
+                .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                content()
             }
         }
     }

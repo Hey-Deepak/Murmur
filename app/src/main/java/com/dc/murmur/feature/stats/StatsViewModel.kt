@@ -1,22 +1,31 @@
 package com.dc.murmur.feature.stats
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dc.murmur.ai.AnalysisStateHolder
 import com.dc.murmur.ai.AnalysisUiState
 import com.dc.murmur.ai.AnalysisWorker
+import com.dc.murmur.ai.BridgeStatus
+import com.dc.murmur.ai.BridgeStatusHolder
+import com.dc.murmur.ai.BridgeUiState
 import com.dc.murmur.ai.ModelDownloadState
 import com.dc.murmur.ai.ModelManager
 import com.dc.murmur.ai.SpeechModelCatalog
 import com.dc.murmur.ai.SpeechModelInfo
+import com.dc.murmur.ai.nlp.ClaudeCodeAnalyzer
+import com.dc.murmur.core.util.TermuxBridgeManager
 import com.dc.murmur.data.local.entity.BatteryLogEntity
 import com.dc.murmur.data.repository.AnalysisRepository
 import com.dc.murmur.data.repository.BatteryRepository
 import com.dc.murmur.data.repository.RecordingRepository
 import com.dc.murmur.data.repository.SettingsRepository
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -26,7 +35,10 @@ class StatsViewModel(
     private val settingsRepo: SettingsRepository,
     private val analysisRepo: AnalysisRepository,
     private val analysisState: AnalysisStateHolder,
-    private val modelManager: ModelManager
+    private val modelManager: ModelManager,
+    private val claudeAnalyzer: ClaudeCodeAnalyzer,
+    private val bridgeManager: TermuxBridgeManager,
+    private val bridgeStatusHolder: BridgeStatusHolder
 ) : ViewModel() {
 
     val totalStorageBytes: StateFlow<Long> = recordingRepo.getTotalStorageBytes()
@@ -120,5 +132,95 @@ class StatsViewModel(
         bytes >= 1_000_000_000 -> "%.1f GB".format(bytes / 1_000_000_000.0)
         bytes >= 1_000_000     -> "%.1f MB".format(bytes / 1_000_000.0)
         else                   -> "%.0f KB".format(bytes / 1_000.0)
+    }
+
+    // --- Claude Bridge ---
+
+    val bridgeUiState: StateFlow<BridgeUiState> = bridgeStatusHolder.state
+
+    val claudeBridgePort: StateFlow<Int> = settingsRepo.claudeBridgePort
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 8735)
+
+    val claudeBridgeAutoStart: StateFlow<Boolean> = settingsRepo.claudeBridgeAutoStart
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _isTermuxInstalled = MutableStateFlow(bridgeManager.isTermuxInstalled())
+    val isTermuxInstalled: StateFlow<Boolean> = _isTermuxInstalled.asStateFlow()
+
+    init {
+        checkBridgeStatus()
+    }
+
+    fun checkBridgeStatus() {
+        viewModelScope.launch {
+            try {
+                val available = claudeAnalyzer.isAvailable()
+                if (available) {
+                    bridgeStatusHolder.setRunning()
+                } else {
+                    bridgeStatusHolder.setStopped()
+                }
+            } catch (e: Exception) {
+                bridgeStatusHolder.setStopped()
+            }
+            _isTermuxInstalled.value = bridgeManager.isTermuxInstalled()
+        }
+    }
+
+    fun startBridge() {
+        viewModelScope.launch {
+            bridgeStatusHolder.setStarting()
+            val port = settingsRepo.getClaudeBridgePort()
+            bridgeManager.startBridge(port)
+            pollBridgeHealth(expectRunning = true)
+        }
+    }
+
+    fun stopBridge() {
+        viewModelScope.launch {
+            bridgeStatusHolder.setStopping()
+            bridgeManager.stopBridge()
+            pollBridgeHealth(expectRunning = false)
+        }
+    }
+
+    fun installBridgeScripts() {
+        bridgeManager.installScripts()
+    }
+
+    fun setClaudeBridgePort(port: Int) = viewModelScope.launch {
+        settingsRepo.setClaudeBridgePort(port)
+    }
+
+    fun setClaudeBridgeAutoStart(enabled: Boolean) = viewModelScope.launch {
+        settingsRepo.setClaudeBridgeAutoStart(enabled)
+    }
+
+    private suspend fun pollBridgeHealth(expectRunning: Boolean) {
+        repeat(10) {
+            delay(1_000)
+            try {
+                val available = claudeAnalyzer.isAvailable()
+                if (expectRunning && available) {
+                    bridgeStatusHolder.setRunning()
+                    return
+                }
+                if (!expectRunning && !available) {
+                    bridgeStatusHolder.setStopped()
+                    return
+                }
+            } catch (_: Exception) {
+                if (!expectRunning) {
+                    bridgeStatusHolder.setStopped()
+                    return
+                }
+            }
+        }
+        // Timeout — set based on what we expected
+        if (expectRunning) {
+            bridgeStatusHolder.setError("Bridge did not start within 10s")
+        } else {
+            bridgeStatusHolder.setError("Bridge did not stop within 10s")
+        }
     }
 }

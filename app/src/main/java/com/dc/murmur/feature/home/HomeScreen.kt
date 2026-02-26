@@ -1,6 +1,14 @@
 package com.dc.murmur.feature.home
 
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,11 +16,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DataUsage
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,16 +39,26 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dc.murmur.ui.components.AnalyzeNowCard
 import com.dc.murmur.ui.components.TranscriptionCard
+import com.dc.murmur.ui.theme.DarkSurfaceCard
+import com.dc.murmur.ui.theme.GradientRecording
+import com.dc.murmur.ui.theme.GradientRecordingEnd
+import com.dc.murmur.ui.theme.GradientTealEnd
+import com.dc.murmur.ui.theme.GradientTealStart
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,7 +75,20 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
     val recentTranscriptions by viewModel.recentTranscriptions.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Murmur") }) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Murmur",
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
@@ -73,29 +112,14 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Status card
+            // Recording status card with gradient
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isRecording) MaterialTheme.colorScheme.errorContainer
-                                         else MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = if (isRecording) "Recording..." else "Not recording",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Battery: ${viewModel.batteryLevel}%${if (viewModel.isCharging) " ⚡" else ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                RecordingStatusCard(
+                    isRecording = isRecording,
+                    batteryLevel = viewModel.batteryLevel,
+                    isCharging = viewModel.isCharging
+                )
             }
 
             // Today's stats row
@@ -104,9 +128,24 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    StatChip(label = "Chunks", value = "$todayCount", modifier = Modifier.weight(1f))
-                    StatChip(label = "Duration", value = viewModel.formatDuration(todayDurationMs), modifier = Modifier.weight(1f))
-                    StatChip(label = "Size", value = viewModel.formatBytes(todayStorageBytes), modifier = Modifier.weight(1f))
+                    StatChip(
+                        label = "Chunks",
+                        value = "$todayCount",
+                        icon = Icons.Filled.Layers,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatChip(
+                        label = "Duration",
+                        value = viewModel.formatDuration(todayDurationMs),
+                        icon = Icons.Filled.Timer,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatChip(
+                        label = "Size",
+                        value = viewModel.formatBytes(todayStorageBytes),
+                        icon = Icons.Filled.DataUsage,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 
@@ -128,11 +167,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Recent Analysis",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        SectionHeader(text = "Recent Analysis")
                         TextButton(onClick = { viewModel.clearRecentAnalysis() }) {
                             Text("Clear", style = MaterialTheme.typography.labelMedium)
                         }
@@ -146,11 +181,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
 
             // Recent recordings header
             item {
-                Text(
-                    text = "Today's recordings",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SectionHeader(text = "Today's recordings")
             }
 
             if (todayChunks.isEmpty()) {
@@ -180,14 +211,136 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
 }
 
 @Composable
-private fun StatChip(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier) {
+private fun RecordingStatusCard(
+    isRecording: Boolean,
+    batteryLevel: Int,
+    isCharging: Boolean
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "recording_pulse")
+    val pulseAlpha by infiniteTransition.animateColor(
+        initialValue = if (isRecording) GradientRecording else Color.Transparent,
+        targetValue = if (isRecording) GradientRecordingEnd else Color.Transparent,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_color"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (isRecording) {
+                        Modifier.background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    pulseAlpha.copy(alpha = 0.25f),
+                                    GradientRecordingEnd.copy(alpha = 0.10f)
+                                )
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    } else {
+                        Modifier.background(
+                            DarkSurfaceCard,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                )
+                .padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = if (isRecording) Icons.Filled.FiberManualRecord
+                                  else Icons.Filled.MicOff,
+                    contentDescription = null,
+                    tint = if (isRecording) GradientRecording
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = if (isRecording) "Recording..." else "Not recording",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isRecording) GradientRecording
+                               else MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Battery: $batteryLevel%${if (isCharging) " ⚡" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(16.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(GradientTealStart, GradientTealEnd)
+                    )
+                )
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun StatChip(
+    label: String,
+    value: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard)
+    ) {
         Column(
             modifier = Modifier.padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -201,7 +354,10 @@ private fun ChunkCard(
     formatDuration: (Long) -> String,
     formatBytes: (Long) -> String
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard)
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -210,7 +366,11 @@ private fun ChunkCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    text = fileName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
                 Text(
                     text = "${formatDuration(durationMs)} · ${formatBytes(sizeBytes)}",
                     style = MaterialTheme.typography.bodySmall,

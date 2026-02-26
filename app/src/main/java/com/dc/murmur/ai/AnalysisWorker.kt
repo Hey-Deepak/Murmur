@@ -28,6 +28,7 @@ class AnalysisWorker(
     override suspend fun doWork(): Result {
         analysisState.clearLog()
         pipeline.setLogCallback { analysisState.addLog(it) }
+        pipeline.setStepCallback { analysisState.setStep(it) }
 
         // Check battery
         val battery = batteryUtil.getBatteryLevel()
