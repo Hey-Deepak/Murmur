@@ -35,6 +35,8 @@ class SettingsRepository(private val context: Context) {
     private val keyRequireCharging   = booleanPreferencesKey(AppConstants.PREF_REQUIRE_CHARGING)
     private val keyMinBattery        = intPreferencesKey(AppConstants.PREF_MIN_BATTERY)
     private val keyActiveSpeechModel = stringPreferencesKey(AppConstants.PREF_ACTIVE_SPEECH_MODEL)
+    private val keyClaudeBridgePort  = intPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_PORT)
+    private val keyClaudeBridgeAutoStart = booleanPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_AUTO_START)
 
     // --- Recording state ---
     val wasRecording: Flow<Boolean> = ds.data.map { it[keyWasRecording] ?: false }
@@ -100,4 +102,12 @@ class SettingsRepository(private val context: Context) {
     }
     suspend fun getActiveSpeechModel(): String = activeSpeechModel.first()
     suspend fun setActiveSpeechModel(modelId: String) { ds.edit { it[keyActiveSpeechModel] = modelId } }
+
+    // --- Claude Bridge ---
+    val claudeBridgePort: Flow<Int> = ds.data.map { it[keyClaudeBridgePort] ?: AppConstants.DEFAULT_CLAUDE_BRIDGE_PORT }
+    suspend fun getClaudeBridgePort(): Int = claudeBridgePort.first()
+    suspend fun setClaudeBridgePort(port: Int) { ds.edit { it[keyClaudeBridgePort] = port } }
+
+    val claudeBridgeAutoStart: Flow<Boolean> = ds.data.map { it[keyClaudeBridgeAutoStart] ?: false }
+    suspend fun setClaudeBridgeAutoStart(enabled: Boolean) { ds.edit { it[keyClaudeBridgeAutoStart] = enabled } }
 }

@@ -1,125 +1,130 @@
 package com.dc.murmur.ai.nlp
 
 import android.util.Log
+import com.dc.murmur.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
- * Bridges to the `claude` CLI (Claude Code) installed via Termux.
- * Uses the user's existing Pro/Max subscription — no extra API cost.
+ * Bridges to a Ktor HTTP server running in Termux that wraps the `claude` CLI.
  *
- * Install on device:
- *   1. Install Termux
- *   2. pkg install nodejs
- *   3. npm install -g @anthropic-ai/claude-code
- *   4. claude login
+ * Setup:
+ *   1. Install Termux, nodejs, and claude-code
+ *   2. Push claude-bridge-all.jar to device
+ *   3. In Termux: java -jar claude-bridge-all.jar
+ *   4. Bridge listens on http://127.0.0.1:8735
  */
-class ClaudeCodeAnalyzer {
+class ClaudeCodeAnalyzer(private val settingsRepo: SettingsRepository) {
 
     data class ClaudeAnalysis(
         val sentiment: String,      // "positive" | "negative" | "neutral"
         val sentimentScore: Float,  // 0.0 – 1.0
         val keywordsJson: String,   // JSON: {"summary":"...","tags":["..."]}
-        val available: Boolean      // false = CLI not found or timed out
+        val available: Boolean      // false = bridge not reachable
     )
 
     companion object {
         private const val TAG = "ClaudeCodeAnalyzer"
-        private const val TIMEOUT_MS = 45_000L
-
-        // Common locations for `claude` when installed via Termux npm
-        private val CANDIDATE_PATHS = listOf(
-            "/data/data/com.termux/files/usr/bin/claude",
-            "/data/data/com.termux/files/home/.npm-global/bin/claude",
-            "/data/data/com.termux/files/home/node_modules/.bin/claude",
-            "/data/data/com.termux/files/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude",
-            "/usr/local/bin/claude",
-            "/usr/bin/claude"
-        )
-
-        private val PROMPT = """
-Analyze this audio transcript. Respond in EXACTLY this format with no extra lines:
-
-SENTIMENT: <positive|negative|neutral>
-SCORE: <0.00-1.00>
-TAGS: <up to 8 keywords, comma-separated>
-SUMMARY: <one concise paragraph: main topics, key people/places mentioned, any action items>
-
-Transcript:
-%s
-        """.trimIndent()
+        private const val HEALTH_TIMEOUT_MS = 3_000
+        private const val ANALYZE_TIMEOUT_MS = 90_000
     }
 
-    fun findClaudeBinary(): String? {
-        // Check known paths first
-        for (path in CANDIDATE_PATHS) {
-            if (File(path).let { it.exists() && it.canExecute() }) return path
-        }
-        // Fallback: ask the shell
-        return try {
-            val proc = ProcessBuilder("which", "claude")
-                .redirectErrorStream(true)
-                .start()
-            proc.inputStream.bufferedReader().readLine()?.trim()
-                ?.takeIf { it.isNotBlank() && File(it).canExecute() }
+    private suspend fun baseUrl(): String {
+        val port = settingsRepo.getClaudeBridgePort()
+        return "http://127.0.0.1:$port"
+    }
+
+    suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${baseUrl()}/health")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = HEALTH_TIMEOUT_MS
+            conn.readTimeout = HEALTH_TIMEOUT_MS
+            try {
+                val code = conn.responseCode
+                code == 200
+            } finally {
+                conn.disconnect()
+            }
         } catch (e: Exception) {
-            null
+            Log.d(TAG, "Bridge not reachable: ${e.message}")
+            false
         }
     }
-
-    fun isAvailable(): Boolean = findClaudeBinary() != null
 
     suspend fun analyze(transcript: String): ClaudeAnalysis = withContext(Dispatchers.IO) {
         if (transcript.isBlank()) {
             return@withContext unavailable("Empty transcript")
         }
 
-        val claudePath = findClaudeBinary()
-            ?: return@withContext unavailable("Claude Code CLI not found on device")
-
-        val prompt = PROMPT.format(transcript.take(4000))
-
-        val rawOutput = withTimeoutOrNull(TIMEOUT_MS) {
-            runClaude(claudePath, prompt)
+        val available = isAvailable()
+        if (!available) {
+            return@withContext unavailable("Claude bridge not reachable at ${baseUrl()}")
         }
 
-        if (rawOutput == null) {
-            Log.w(TAG, "Claude Code timed out after ${TIMEOUT_MS}ms")
-            return@withContext ClaudeAnalysis(
-                sentiment = "neutral",
-                sentimentScore = 0.5f,
-                keywordsJson = buildJson("Analysis timed out.", emptyList()),
+        try {
+            val url = URL("${baseUrl()}/analyze")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = ANALYZE_TIMEOUT_MS
+            conn.readTimeout = ANALYZE_TIMEOUT_MS
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+
+            val body = JSONObject().apply {
+                put("text", transcript)
+            }.toString()
+
+            OutputStreamWriter(conn.outputStream).use { it.write(body) }
+
+            val responseCode = conn.responseCode
+            if (responseCode != 200) {
+                val errorBody = try {
+                    conn.errorStream?.bufferedReader()?.readText() ?: "no body"
+                } catch (_: Exception) { "unreadable" }
+                conn.disconnect()
+                Log.w(TAG, "Bridge returned $responseCode: $errorBody")
+                return@withContext unavailable("Bridge error: $responseCode")
+            }
+
+            val responseBody = conn.inputStream.bufferedReader().readText()
+            conn.disconnect()
+
+            parseResponse(responseBody)
+        } catch (e: Exception) {
+            Log.e(TAG, "Bridge call failed: ${e.message}")
+            unavailable("Bridge call failed: ${e.message}")
+        }
+    }
+
+    private fun parseResponse(json: String): ClaudeAnalysis {
+        return try {
+            val obj = JSONObject(json)
+            val sentiment = obj.optString("sentiment", "neutral")
+            val score = obj.optDouble("score", 0.5).toFloat().coerceIn(0f, 1f)
+            val tagsArray = obj.optJSONArray("tags") ?: JSONArray()
+            val tags = (0 until tagsArray.length()).map { tagsArray.getString(it) }
+            val summary = obj.optString("summary", "")
+
+            ClaudeAnalysis(
+                sentiment = sentiment,
+                sentimentScore = score,
+                keywordsJson = buildJson(summary, tags),
                 available = true
             )
-        }
-
-        parseOutput(rawOutput)
-    }
-
-    private fun runClaude(claudePath: String, prompt: String): String? {
-        return try {
-            val process = ProcessBuilder(claudePath, "-p", prompt)
-                .redirectErrorStream(true)
-                .start()
-            val output = process.inputStream.bufferedReader().readText()
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
-                Log.w(TAG, "claude exited $exitCode: ${output.take(300)}")
-                null
-            } else {
-                output
-            }
         } catch (e: Exception) {
-            Log.e(TAG, "ProcessBuilder failed: ${e.message}")
-            null
+            Log.w(TAG, "Failed to parse bridge response, attempting raw parse: ${e.message}")
+            parseRawOutput(json)
         }
     }
 
-    private fun parseOutput(output: String): ClaudeAnalysis {
+    private fun parseRawOutput(output: String): ClaudeAnalysis {
         val lines = output.lines()
 
         val sentiment = lines
@@ -149,8 +154,6 @@ Transcript:
         } else {
             output.trim().take(500)
         }
-
-        Log.d(TAG, "Parsed → sentiment=$sentiment score=$score tags=${tags.size} summary=${summary.take(60)}…")
 
         return ClaudeAnalysis(
             sentiment = sentiment,

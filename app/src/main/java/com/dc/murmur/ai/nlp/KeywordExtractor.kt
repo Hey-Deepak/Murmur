@@ -100,4 +100,35 @@ class KeywordExtractor {
             emptyList()
         }
     }
+
+    /**
+     * Parses the Claude summary from the keywords column.
+     * Handles the new object format {"summary":"...","tags":[...]}
+     * and returns empty string for the old plain-array format.
+     */
+    fun parseSummary(json: String): String {
+        if (json.isBlank()) return ""
+        return try {
+            org.json.JSONObject(json).optString("summary", "")
+        } catch (e: Exception) {
+            "" // old plain-array format — no summary field
+        }
+    }
+
+    /**
+     * Parses tags from either format:
+     *   new: {"summary":"...","tags":["tag1","tag2"]}
+     *   old: ["tag1","tag2"]
+     */
+    fun parseTags(json: String): List<String> {
+        if (json.isBlank()) return emptyList()
+        return try {
+            val obj = org.json.JSONObject(json)
+            val arr = obj.optJSONArray("tags") ?: return emptyList()
+            (0 until arr.length()).map { arr.getString(it) }
+        } catch (e: Exception) {
+            // Old plain-array format
+            fromJson(json)
+        }
+    }
 }

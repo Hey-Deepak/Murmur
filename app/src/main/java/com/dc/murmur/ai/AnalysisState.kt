@@ -19,6 +19,7 @@ data class AnalysisUiState(
     val status: AnalysisStatus = AnalysisStatus.IDLE,
     val progress: Int = 0,
     val total: Int = 0,
+    val currentStep: String = "",
     val errorMessage: String? = null
 )
 
@@ -45,12 +46,20 @@ class AnalysisStateHolder {
         _state.value = AnalysisUiState(status = AnalysisStatus.DOWNLOADING_MODELS)
     }
 
-    fun setRunning(progress: Int, total: Int) {
+    fun setRunning(progress: Int, total: Int, step: String = "") {
         _state.value = AnalysisUiState(
             status = AnalysisStatus.RUNNING,
             progress = progress,
-            total = total
+            total = total,
+            currentStep = step
         )
+    }
+
+    fun setStep(step: String) {
+        val current = _state.value
+        if (current.status == AnalysisStatus.RUNNING) {
+            _state.value = current.copy(currentStep = step)
+        }
     }
 
     fun setCompleted() {

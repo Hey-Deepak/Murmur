@@ -74,4 +74,7 @@ object AppConstants {
     const val PREF_REQUIRE_CHARGING = "require_charging_for_analysis"
     const val PREF_MIN_BATTERY = "min_battery_for_analysis"
     const val PREF_ACTIVE_SPEECH_MODEL = "active_speech_model"
+    const val PREF_CLAUDE_BRIDGE_PORT = "claude_bridge_port"
+    const val PREF_CLAUDE_BRIDGE_AUTO_START = "claude_bridge_auto_start"
+    const val DEFAULT_CLAUDE_BRIDGE_PORT = 8735
 }

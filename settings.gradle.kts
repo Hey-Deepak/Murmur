@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Murmur"
 include(":app")
+include(":claude-bridge")
  
