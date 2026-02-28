@@ -6,7 +6,7 @@ import java.io.File
 object AppConstants {
 
     // --- Recording ---
-    const val CHUNK_DURATION_DEFAULT_MS = 15 * 60 * 1000L  // 15 minutes
+    const val CHUNK_DURATION_DEFAULT_MS = 5 * 60 * 1000L  // 5 minutes (testing; production: 10 minutes)
     const val AUDIO_SAMPLE_RATE = 16000          // 16 kHz
     const val AUDIO_BIT_RATE_LOW = 24000         // 24 kbps
     const val AUDIO_BIT_RATE_NORMAL = 32000      // 32 kbps
