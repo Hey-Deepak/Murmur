@@ -71,6 +71,7 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
     val todayDurationMs by viewModel.todayDurationMs.collectAsState()
     val todayStorageBytes by viewModel.todayStorageBytes.collectAsState()
     val analysisState by viewModel.analysisUiState.collectAsState()
+    val analysisLog by viewModel.analysisLog.collectAsState()
     val unprocessedCount by viewModel.unprocessedCount.collectAsState()
     val recentTranscriptions by viewModel.recentTranscriptions.collectAsState()
 
@@ -155,7 +156,9 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
                     state = analysisState,
                     unprocessedCount = unprocessedCount,
                     onAnalyzeClick = { viewModel.startAnalysis(context) },
-                    onCancelClick = { viewModel.cancelAnalysis(context) }
+                    onCancelClick = { viewModel.cancelAnalysis(context) },
+                    onReanalyzeAllClick = { viewModel.reanalyzeAll(context) },
+                    logEntries = analysisLog
                 )
             }
 

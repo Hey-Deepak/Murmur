@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -26,6 +28,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dc.murmur.feature.home.HomeScreen
+import com.dc.murmur.feature.insights.InsightsScreen
+import com.dc.murmur.feature.people.PeopleScreen
 import com.dc.murmur.feature.permission.PermissionScreen
 import com.dc.murmur.feature.recordings.RecordingsScreen
 import com.dc.murmur.feature.stats.StatsScreen
@@ -34,10 +38,12 @@ private sealed class Screen(val route: String, val label: String) {
     object Permissions : Screen("permissions", "Permissions")
     object Home : Screen("home", "Home")
     object Recordings : Screen("recordings", "Recordings")
+    object Insights : Screen("insights", "Insights")
+    object People : Screen("people", "People")
     object Stats : Screen("stats", "Stats")
 }
 
-private val bottomNavScreens = listOf(Screen.Home, Screen.Recordings, Screen.Stats)
+private val bottomNavScreens = listOf(Screen.Home, Screen.Recordings, Screen.Insights, Screen.People, Screen.Stats)
 
 @Composable
 fun MurmurNavGraph() {
@@ -66,6 +72,8 @@ fun MurmurNavGraph() {
                                     imageVector = when (screen) {
                                         Screen.Home -> Icons.Default.Mic
                                         Screen.Recordings -> Icons.Default.Headphones
+                                        Screen.Insights -> Icons.Default.Psychology
+                                        Screen.People -> Icons.Default.People
                                         Screen.Stats -> Icons.Default.BarChart
                                         else -> Icons.Default.Mic
                                     },
@@ -101,6 +109,8 @@ fun MurmurNavGraph() {
             }
             composable(Screen.Home.route) { HomeScreen() }
             composable(Screen.Recordings.route) { RecordingsScreen() }
+            composable(Screen.Insights.route) { InsightsScreen() }
+            composable(Screen.People.route) { PeopleScreen() }
             composable(Screen.Stats.route) { StatsScreen() }
         }
     }

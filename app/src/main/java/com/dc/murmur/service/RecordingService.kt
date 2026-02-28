@@ -17,6 +17,7 @@ import com.dc.murmur.data.local.entity.BatteryLogEntity
 import com.dc.murmur.data.local.entity.RecordingChunkEntity
 import com.dc.murmur.data.local.entity.SessionEntity
 import com.dc.murmur.data.repository.BatteryRepository
+import com.dc.murmur.ai.AnalysisWorker
 import com.dc.murmur.data.repository.RecordingRepository
 import com.dc.murmur.data.repository.SettingsRepository
 import android.util.Log
@@ -128,6 +129,12 @@ class RecordingService : LifecycleService() {
                 Log.d(TAG, "session ended: ${session.id}")
             }
             settingsRepo.setWasRecording(false)
+
+            // Auto-trigger analysis after recording stops
+            if (settingsRepo.getAnalysisEnabled()) {
+                Log.d(TAG, "Auto-triggering analysis after recording stop")
+                AnalysisWorker.enqueueNow(this@RecordingService)
+            }
 
             releaseAudioFocus()
             releaseWakeLock()

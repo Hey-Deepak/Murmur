@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -11,6 +12,10 @@ import kotlinx.coroutines.launch
 import com.dc.murmur.core.constants.AppConstants
 
 class CallStateReceiver : BroadcastReceiver() {
+
+    companion object {
+        private const val TAG = "CallStateReceiver"
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
@@ -21,7 +26,8 @@ class CallStateReceiver : BroadcastReceiver() {
             TelephonyManager.EXTRA_STATE_RINGING,
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                 // Pause recording for incoming/outgoing call
-                context.startService(
+                sendToService(
+                    context,
                     Intent(context, RecordingService::class.java).apply {
                         action = AppConstants.ACTION_PAUSE_RECORDING
                         putExtra(AppConstants.EXTRA_PAUSE_REASON, "phone_call")
@@ -32,13 +38,22 @@ class CallStateReceiver : BroadcastReceiver() {
                 // Wait 2s after call ends then resume
                 CoroutineScope(Dispatchers.IO).launch {
                     delay(AppConstants.CALL_RESUME_DELAY_MS)
-                    context.startService(
+                    sendToService(
+                        context,
                         Intent(context, RecordingService::class.java).apply {
                             action = AppConstants.ACTION_RESUME_RECORDING
                         }
                     )
                 }
             }
+        }
+    }
+
+    private fun sendToService(context: Context, intent: Intent) {
+        try {
+            context.startForegroundService(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not deliver ${intent.action} to RecordingService", e)
         }
     }
 }

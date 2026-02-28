@@ -3,11 +3,9 @@ package com.dc.murmur.feature.stats
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -17,16 +15,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.dc.murmur.ai.BridgeStatus
 import com.dc.murmur.ai.BridgeUiState
 import com.dc.murmur.ai.ModelDownloadState
 import com.dc.murmur.ai.SpeechModelInfo
-import com.dc.murmur.ai.SpeechProvider
 import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
 import com.patrykandpatrick.vico.compose.chart.Chart
@@ -34,7 +29,9 @@ import com.patrykandpatrick.vico.compose.chart.line.lineChart
 import com.patrykandpatrick.vico.compose.m3.style.m3ChartStyle
 import com.patrykandpatrick.vico.compose.style.ProvideChartStyle
 import com.patrykandpatrick.vico.core.entry.entryModelOf
+import com.dc.murmur.ui.components.ActivityTrendChart
 import com.dc.murmur.ui.components.AnalyzeNowCard
+import com.dc.murmur.ui.components.SentimentTrendChart
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,8 +56,15 @@ fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
     // Speech model state
     val modelStates by viewModel.modelDownloadStates.collectAsState()
     val activeModelId by viewModel.activeModelId.collectAsState()
+    val transcriptionLanguage by viewModel.transcriptionLanguage.collectAsState()
 
     val analysisLog by viewModel.analysisLog.collectAsState()
+
+    // Trends
+    val weeklyActivityTrend by viewModel.weeklyActivityTrend.collectAsState()
+    val monthlySentimentTrend by viewModel.monthlySentimentTrend.collectAsState()
+    val topPeople by viewModel.topPeopleThisWeek.collectAsState()
+    val topTopics by viewModel.topTopicsThisWeek.collectAsState()
 
     // Bridge state
     val bridgeState by viewModel.bridgeUiState.collectAsState()
@@ -110,6 +114,70 @@ fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
                 }
             }
 
+            // --- Activity Trends ---
+            if (weeklyActivityTrend.isNotEmpty()) {
+                item { ActivityTrendChart(weeklyActivityTrend) }
+            }
+
+            // --- Sentiment Trends ---
+            if (monthlySentimentTrend.size >= 2) {
+                item { SentimentTrendChart(monthlySentimentTrend) }
+            }
+
+            // --- Top People This Week ---
+            if (topPeople.isNotEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Top People This Week", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            topPeople.take(5).forEach { profile ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        profile.label ?: profile.voiceId.take(12),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "${profile.interactionCount} interactions",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Top Topics This Week ---
+            if (topTopics.isNotEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Top Topics This Week", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            topTopics.take(8).forEach { topic ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        topic.name,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "${topic.totalMentions}x",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- Storage ---
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -126,9 +194,11 @@ fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
                     models = viewModel.modelCatalog,
                     modelStates = modelStates,
                     activeModelId = activeModelId,
+                    transcriptionLanguage = transcriptionLanguage,
                     onDownload = viewModel::downloadModel,
                     onSetActive = viewModel::setActiveModel,
                     onDelete = { showDeleteConfirm = it },
+                    onLanguageChange = viewModel::setTranscriptionLanguage,
                     formatBytes = viewModel::formatBytes
                 )
             }
@@ -196,18 +266,15 @@ fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
                             Switch(checked = analysisEnabled, onCheckedChange = viewModel::setAnalysisEnabled)
                         }
 
-                        // Analyze Now button
+                        // Analyze Now button (with integrated log viewer)
                         AnalyzeNowCard(
                             state = analysisState,
                             unprocessedCount = unprocessedCount,
                             onAnalyzeClick = { viewModel.startAnalysis(context) },
-                            onCancelClick = { viewModel.cancelAnalysis(context) }
+                            onCancelClick = { viewModel.cancelAnalysis(context) },
+                            onReanalyzeAllClick = { viewModel.startAnalysis(context) },
+                            logEntries = analysisLog
                         )
-
-                        // Live Analysis Log
-                        if (analysisLog.isNotEmpty()) {
-                            AnalysisLogCard(logEntries = analysisLog)
-                        }
 
                         if (analysisEnabled) {
                             // Trigger mode
@@ -360,9 +427,11 @@ private fun SpeechModelCard(
     models: List<SpeechModelInfo>,
     modelStates: Map<String, ModelDownloadState>,
     activeModelId: String,
+    transcriptionLanguage: String,
     onDownload: (String) -> Unit,
     onSetActive: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onLanguageChange: (String) -> Unit,
     formatBytes: (Long) -> String
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -373,6 +442,20 @@ private fun SpeechModelCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // Transcription language selector
+            Text("Transcription language", style = MaterialTheme.typography.labelMedium)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                listOf("hi" to "Hindi", "en" to "English", "" to "Auto").forEachIndexed { index, (code, label) ->
+                    SegmentedButton(
+                        selected = transcriptionLanguage == code,
+                        onClick = { onLanguageChange(code) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = 3)
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
 
             models.forEach { model ->
                 val state = modelStates[model.id] ?: ModelDownloadState.NotDownloaded
@@ -421,10 +504,7 @@ private fun SpeechModelRow(
                 Text(model.language, style = MaterialTheme.typography.bodyMedium)
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = when (model.provider) {
-                        SpeechProvider.VOSK -> MaterialTheme.colorScheme.secondaryContainer
-                        SpeechProvider.WHISPER -> MaterialTheme.colorScheme.tertiaryContainer
-                    },
+                    color = MaterialTheme.colorScheme.primaryContainer,
                     modifier = Modifier
                 ) {
                     Text(
@@ -447,6 +527,16 @@ private fun SpeechModelRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp)
+                )
+            }
+
+            // Error message
+            if (state is ModelDownloadState.Error) {
+                Text(
+                    state.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2
                 )
             }
         }
@@ -475,9 +565,9 @@ private fun SpeechModelRow(
                     )
                 }
             }
-            state is ModelDownloadState.NotDownloaded -> {
+            state is ModelDownloadState.NotDownloaded || state is ModelDownloadState.Error -> {
                 TextButton(onClick = onDownload) {
-                    Text("Get")
+                    Text(if (state is ModelDownloadState.Error) "Retry" else "Get")
                 }
             }
             state is ModelDownloadState.Downloading -> {
@@ -654,54 +744,3 @@ private fun ClaudeBridgeCard(
     }
 }
 
-@Composable
-private fun AnalysisLogCard(logEntries: List<String>) {
-    val scrollState = rememberScrollState()
-
-    // Auto-scroll to bottom when new entries are added
-    LaunchedEffect(logEntries.size) {
-        scrollState.animateScrollTo(scrollState.maxValue)
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                "Live Log",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(6.dp))
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 240.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .verticalScroll(scrollState)
-                        .padding(8.dp)
-                ) {
-                    logEntries.forEach { entry ->
-                        Text(
-                            text = entry,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                lineHeight = 16.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-        }
-    }
-}

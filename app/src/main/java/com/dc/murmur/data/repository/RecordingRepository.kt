@@ -62,6 +62,15 @@ class RecordingRepository(
         if (file.exists()) file.delete()
     }
 
+    suspend fun deleteAllChunks() {
+        val paths = chunkDao.getAllFilePaths()
+        chunkDao.deleteAll()
+        paths.forEach { path ->
+            val file = java.io.File(path)
+            if (file.exists()) file.delete()
+        }
+    }
+
     suspend fun deleteOldRecordings(beforeDate: String) {
         chunkDao.deleteOlderThan(beforeDate)
         storageUtil.deleteRecordingsOlderThan(beforeDate)

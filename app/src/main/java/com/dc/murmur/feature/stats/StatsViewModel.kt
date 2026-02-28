@@ -16,11 +16,19 @@ import com.dc.murmur.ai.SpeechModelCatalog
 import com.dc.murmur.ai.SpeechModelInfo
 import com.dc.murmur.ai.nlp.ClaudeCodeAnalyzer
 import com.dc.murmur.core.util.TermuxBridgeManager
+import com.dc.murmur.data.local.dao.ActivityTimeBreakdown
 import com.dc.murmur.data.local.entity.BatteryLogEntity
+import com.dc.murmur.data.local.entity.TopicEntity
+import com.dc.murmur.data.local.entity.VoiceProfileEntity
 import com.dc.murmur.data.repository.AnalysisRepository
 import com.dc.murmur.data.repository.BatteryRepository
+import com.dc.murmur.data.repository.InsightsRepository
+import com.dc.murmur.data.repository.PeopleRepository
 import com.dc.murmur.data.repository.RecordingRepository
 import com.dc.murmur.data.repository.SettingsRepository
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,8 +46,26 @@ class StatsViewModel(
     private val modelManager: ModelManager,
     private val claudeAnalyzer: ClaudeCodeAnalyzer,
     private val bridgeManager: TermuxBridgeManager,
-    private val bridgeStatusHolder: BridgeStatusHolder
+    private val bridgeStatusHolder: BridgeStatusHolder,
+    private val insightsRepo: InsightsRepository,
+    private val peopleRepo: PeopleRepository
 ) : ViewModel() {
+
+    // --- Trend data ---
+    private val _weeklyActivityTrend = MutableStateFlow<Map<String, List<ActivityTimeBreakdown>>>(emptyMap())
+    val weeklyActivityTrend: StateFlow<Map<String, List<ActivityTimeBreakdown>>> = _weeklyActivityTrend.asStateFlow()
+
+    private val _monthlySentimentTrend = MutableStateFlow<List<Pair<String, Float>>>(emptyList())
+    val monthlySentimentTrend: StateFlow<List<Pair<String, Float>>> = _monthlySentimentTrend.asStateFlow()
+
+    val topPeopleThisWeek: StateFlow<List<VoiceProfileEntity>> = peopleRepo.getTaggedProfiles()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val topTopicsThisWeek: StateFlow<List<TopicEntity>> = insightsRepo.getTopTopics(10)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _predictionAccuracy = MutableStateFlow(0f)
+    val predictionAccuracy: StateFlow<Float> = _predictionAccuracy.asStateFlow()
 
     val totalStorageBytes: StateFlow<Long> = recordingRepo.getTotalStorageBytes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
@@ -92,11 +118,14 @@ class StatsViewModel(
     val activeModelId: StateFlow<String> = settingsRepo.activeSpeechModel
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SpeechModelCatalog.defaultModelId)
 
+    val transcriptionLanguage: StateFlow<String> = settingsRepo.transcriptionLanguage
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "hi")
+
     fun downloadModel(modelId: String) = viewModelScope.launch {
         try {
             modelManager.downloadModel(modelId)
-        } catch (_: Exception) {
-            // Download state already reset to NotDownloaded on failure
+        } catch (e: Exception) {
+            Log.e("StatsViewModel", "Model download failed: $modelId", e)
         }
     }
 
@@ -118,6 +147,7 @@ class StatsViewModel(
         analysisState.setIdle()
     }
 
+    fun setTranscriptionLanguage(lang: String) = viewModelScope.launch { settingsRepo.setTranscriptionLanguage(lang) }
     fun setAudioQuality(q: String) = viewModelScope.launch { settingsRepo.setAudioQuality(q) }
     fun setAutoDeleteDays(days: Int) = viewModelScope.launch { settingsRepo.setAutoDeleteDays(days) }
     fun setAutoStartOnBoot(v: Boolean) = viewModelScope.launch { settingsRepo.setAutoStartOnBoot(v) }
@@ -149,6 +179,41 @@ class StatsViewModel(
 
     init {
         checkBridgeStatus()
+        loadTrends()
+    }
+
+    private fun loadTrends() {
+        viewModelScope.launch {
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val cal = Calendar.getInstance()
+            val today = dateFormat.format(cal.time)
+
+            // Weekly activity trend: per-day breakdown for past 7 days
+            val weeklyMap = mutableMapOf<String, List<ActivityTimeBreakdown>>()
+            for (i in 6 downTo 0) {
+                val c = Calendar.getInstance()
+                c.add(Calendar.DAY_OF_YEAR, -i)
+                val date = dateFormat.format(c.time)
+                val breakdown = insightsRepo.getTimeBreakdown(date)
+                if (breakdown.isNotEmpty()) {
+                    weeklyMap[date] = breakdown
+                }
+            }
+            _weeklyActivityTrend.value = weeklyMap
+
+            // Monthly sentiment trend
+            val sentiments = mutableListOf<Pair<String, Float>>()
+            for (i in 29 downTo 0) {
+                val c = Calendar.getInstance()
+                c.add(Calendar.DAY_OF_YEAR, -i)
+                val date = dateFormat.format(c.time)
+                val insight = insightsRepo.getDailyInsight(date)
+                if (insight != null) {
+                    sentiments.add(date to insight.overallSentimentScore)
+                }
+            }
+            _monthlySentimentTrend.value = sentiments
+        }
     }
 
     fun checkBridgeStatus() {

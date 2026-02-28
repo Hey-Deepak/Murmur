@@ -38,6 +38,9 @@ object AppConstants {
     const val RECORDING_NOTIFICATION_ID = 1001
     const val ANALYSIS_NOTIFICATION_ID = 1002
     const val INSIGHTS_NOTIFICATION_ID = 1003
+    const val PREDICTION_NOTIFICATION_ID = 1004
+    const val PREDICTION_CHANNEL_ID = "murmur_predictions"
+    const val PREDICTION_CHANNEL_NAME = "Predictions"
 
     // --- Service ---
     const val ACTION_START_RECORDING = "com.dc.murmur.START_RECORDING"
@@ -76,5 +79,6 @@ object AppConstants {
     const val PREF_ACTIVE_SPEECH_MODEL = "active_speech_model"
     const val PREF_CLAUDE_BRIDGE_PORT = "claude_bridge_port"
     const val PREF_CLAUDE_BRIDGE_AUTO_START = "claude_bridge_auto_start"
+    const val PREF_TRANSCRIPTION_LANGUAGE = "transcription_language"
     const val DEFAULT_CLAUDE_BRIDGE_PORT = 8735
 }

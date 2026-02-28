@@ -1,6 +1,7 @@
 package com.dc.murmur.ai
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -10,6 +11,9 @@ import com.dc.murmur.core.util.BatteryUtil
 import com.dc.murmur.core.util.NotificationUtil
 import com.dc.murmur.data.local.dao.RecordingChunkDao
 import com.dc.murmur.data.repository.AnalysisRepository
+import com.dc.murmur.data.repository.InsightsRepository
+import com.dc.murmur.data.repository.PeopleRepository
+import com.dc.murmur.data.repository.SettingsRepository
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -24,14 +28,26 @@ class AnalysisWorker(
     private val batteryUtil: BatteryUtil by inject()
     private val notificationUtil: NotificationUtil by inject()
     private val analysisState: AnalysisStateHolder by inject()
+    private val insightsRepo: InsightsRepository by inject()
+    private val peopleRepo: PeopleRepository by inject()
+    private val conversationLinker: ConversationLinker by inject()
+    private val insightGenerator: InsightGenerator by inject()
+    private val predictionEngine: PredictionEngine by inject()
+    private val settingsRepo: SettingsRepository by inject()
 
     override suspend fun doWork(): Result {
+        Log.w(TAG, "AnalysisWorker started")
         analysisState.clearLog()
         pipeline.setLogCallback { analysisState.addLog(it) }
         pipeline.setStepCallback { analysisState.setStep(it) }
 
+        // Wire up repositories for full analysis
+        analysisRepo.setInsightsRepository(insightsRepo)
+        analysisRepo.setPeopleRepository(peopleRepo)
+
         // Check battery
         val battery = batteryUtil.getBatteryLevel()
+        Log.w(TAG, "Battery: $battery%")
         analysisState.addLog("Battery: $battery%")
         if (battery in 0..14) {
             analysisState.addLog("Battery too low, aborting")
@@ -42,6 +58,7 @@ class AnalysisWorker(
 
         try {
             val chunks = chunkDao.getUnprocessed()
+            Log.w(TAG, "Found ${chunks.size} unprocessed chunks")
             analysisState.addLog("Found ${chunks.size} unprocessed chunks")
             if (chunks.isEmpty()) {
                 analysisState.addLog("Nothing to process")
@@ -82,9 +99,42 @@ class AnalysisWorker(
                 notificationUtil.showAnalysisProgress(processed, total)
 
                 try {
+                    Log.w(TAG, "Processing chunk ${chunk.id}: ${chunk.filePath}")
                     val result = pipeline.processChunk(chunk.id, chunk.filePath)
-                    analysisRepo.saveTranscription(result)
+                    Log.w(TAG, "Chunk ${chunk.id} done, saving analysis")
+                    if (result.activityType != null || result.speakers.isNotEmpty() || result.topics.isNotEmpty()) {
+                        analysisRepo.saveFullAnalysis(
+                            result = result,
+                            chunkDate = chunk.date,
+                            chunkStartTime = chunk.startTime,
+                            chunkDurationMs = chunk.durationMs
+                        )
+
+                        // Find conversation links for this chunk
+                        try {
+                            val port = settingsRepo.getClaudeBridgePort()
+                            val links = conversationLinker.findLinks(
+                                chunkId = chunk.id,
+                                chunkDate = chunk.date,
+                                chunkStartTime = chunk.startTime,
+                                chunkText = result.text,
+                                chunkTopics = result.topics.map { it.name },
+                                chunkSpeakers = result.speakers.map { it.label },
+                                chunkActivity = result.activityType,
+                                bridgeBaseUrl = "http://127.0.0.1:$port"
+                            )
+                            if (links.isNotEmpty()) {
+                                insightsRepo.saveLinks(links)
+                                analysisState.addLog("Found ${links.size} conversation links")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Linking failed for chunk ${chunk.id}: ${e.message}")
+                        }
+                    } else {
+                        analysisRepo.saveTranscription(result)
+                    }
                 } catch (e: Exception) {
+                    Log.e(TAG, "ERROR on chunk ${chunk.id}: ${e.message}", e)
                     analysisState.addLog("ERROR on chunk ${chunk.id}: ${e.message}")
                     // Skip this chunk but continue with others
                     // Mark as processed to avoid infinite retry loops
@@ -94,12 +144,38 @@ class AnalysisWorker(
 
             pipeline.close()
             notificationUtil.cancelAnalysis()
+
+            // Post-processing: conversation links, daily insight, predictions
+            val bridgePort = settingsRepo.getClaudeBridgePort()
+            val bridgeBaseUrl = "http://127.0.0.1:$bridgePort"
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+
+            try {
+                analysisState.addLog("Generating daily insight...")
+                insightGenerator.generateDailyInsight(today)
+                analysisState.addLog("Daily insight generated")
+            } catch (e: Exception) {
+                Log.w(TAG, "Daily insight generation failed: ${e.message}")
+                analysisState.addLog("Daily insight failed: ${e.message}")
+            }
+
+            try {
+                analysisState.addLog("Generating predictions...")
+                val predictions = predictionEngine.generatePredictions(today, bridgeBaseUrl)
+                analysisState.addLog("Generated ${predictions.size} predictions")
+            } catch (e: Exception) {
+                Log.w(TAG, "Prediction generation failed: ${e.message}")
+                analysisState.addLog("Predictions failed: ${e.message}")
+            }
+
             notificationUtil.showInsightsReady()
             analysisState.addLog("All $total chunks processed")
             analysisState.setCompleted()
 
             return Result.success()
         } catch (e: Exception) {
+            Log.e(TAG, "FATAL: ${e.message}", e)
             analysisState.addLog("FATAL: ${e.message}")
             pipeline.close()
             notificationUtil.cancelAnalysis()
@@ -109,6 +185,7 @@ class AnalysisWorker(
     }
 
     companion object {
+        private const val TAG = "AnalysisWorker"
         private const val WORK_NAME = "murmur_analysis_now"
 
         fun enqueueNow(context: Context) {

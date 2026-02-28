@@ -102,21 +102,30 @@ AnalysisWorker.doWork()
     │
     ├─ Check safety conditions → skip if not met
     │
+    ├─ Inject repositories (InsightsRepo, PeopleRepo → AnalysisRepo)
+    │
     ├─ Show progress notification: "Analyzing... 0/N chunks"
     │
     ├─ Get all unprocessed chunks from Room
     │
     ├─ For each chunk:
     │   ├─ Update notification: "Analyzing... X/N chunks"
-    │   ├─ [Phase 2] Whisper-tiny → transcribe
-    │   ├─ [Phase 2] MobileBERT → sentiment
-    │   ├─ [Phase 2] Rule-based → keywords
-    │   ├─ Save TranscriptionEntity to Room
+    │   ├─ AnalysisPipeline.processChunk():
+    │   │   ├─ AudioDecoder → PCM
+    │   │   ├─ WhisperKit → transcribe
+    │   │   ├─ Claude Bridge /analyze → rich JSON (activity, speakers, topics, tags)
+    │   │   └─ [Fallback] MobileBERT + KeywordExtractor
+    │   ├─ Save TranscriptionEntity (with rich fields if available)
+    │   ├─ Save ActivityEntity, SpeakerSegments, Topics (if rich data)
+    │   ├─ ConversationLinker → find links to previous chunks
     │   └─ Mark chunk as processed
     │
-    ├─ [Phase 2] DailySummaryGenerator → create summary
+    ├─ Post-analysis (after all chunks):
+    │   ├─ InsightGenerator → generate daily insight
+    │   ├─ PredictionEngine → generate predictions from weekly patterns
+    │   └─ NotificationUtil → show prediction notifications
     │
-    ├─ Show insights notification: "Your daily insights are ready 🎯"
+    ├─ Show insights notification: "Your daily insights are ready"
     │
     └─ Return Result.success()
 ```

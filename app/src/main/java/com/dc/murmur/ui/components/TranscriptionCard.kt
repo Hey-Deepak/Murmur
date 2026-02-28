@@ -46,6 +46,16 @@ import com.dc.murmur.data.local.entity.TranscriptionEntity
 import com.dc.murmur.ui.theme.ClaudePurple
 import com.dc.murmur.ui.theme.ClaudePurpleBg
 import com.dc.murmur.ui.theme.DarkSurfaceCard
+import com.dc.murmur.ui.theme.SentimentAnxious
+import com.dc.murmur.ui.theme.SentimentAnxiousBg
+import com.dc.murmur.ui.theme.SentimentConfident
+import com.dc.murmur.ui.theme.SentimentConfidentBg
+import com.dc.murmur.ui.theme.SentimentExcited
+import com.dc.murmur.ui.theme.SentimentExcitedBg
+import com.dc.murmur.ui.theme.SentimentFrustrated
+import com.dc.murmur.ui.theme.SentimentFrustratedBg
+import com.dc.murmur.ui.theme.SentimentHesitant
+import com.dc.murmur.ui.theme.SentimentHesitantBg
 import com.dc.murmur.ui.theme.SentimentNegative
 import com.dc.murmur.ui.theme.SentimentNegativeBg
 import com.dc.murmur.ui.theme.SentimentNeutral
@@ -68,6 +78,11 @@ fun TranscriptionCard(
     val (sentimentColor, sentimentBg) = when (transcription.sentiment) {
         "positive" -> Pair(SentimentPositive, SentimentPositiveBg)
         "negative" -> Pair(SentimentNegative, SentimentNegativeBg)
+        "anxious" -> Pair(SentimentAnxious, SentimentAnxiousBg)
+        "frustrated" -> Pair(SentimentFrustrated, SentimentFrustratedBg)
+        "confident" -> Pair(SentimentConfident, SentimentConfidentBg)
+        "hesitant" -> Pair(SentimentHesitant, SentimentHesitantBg)
+        "excited" -> Pair(SentimentExcited, SentimentExcitedBg)
         else -> Pair(SentimentNeutral, SentimentNeutralBg)
     }
 

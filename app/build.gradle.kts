@@ -38,6 +38,11 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
@@ -80,13 +85,10 @@ dependencies {
     implementation(libs.vico.compose)
     implementation(libs.vico.compose.m3)
 
-    // Phase 2 — AI (TFLite + Vosk)
-    implementation(libs.vosk.android)
-    implementation(libs.sherpa.onnx)
-    implementation(libs.commons.compress)
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.support)
-    implementation(libs.tensorflow.lite.task.text)
+    // WhisperKit (LiteRT-optimized Whisper)
+    implementation(libs.whisperkit)
+    implementation(libs.qnn.runtime)
+    implementation(libs.qnn.litert.delegate)
 
     // Test
     testImplementation(libs.junit)

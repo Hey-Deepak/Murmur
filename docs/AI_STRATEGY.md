@@ -20,78 +20,80 @@
 | Gemini Nano | ❌ No | Only Pixel 9/10, select flagships |
 | Large Whisper models | ❌ Too slow | whisper-small/medium would drain battery |
 
-## AI Stack
+## AI Stack (Current)
 
 ### Layer 1: Speech-to-Text
 
-**Primary: Whisper-tiny via TFLite (Batch)**
-- Model: `whisper-tiny.en.tflite` (~75 MB)
+**Primary: WhisperKit (on-device, QNN-accelerated where available)**
+- Multiple model sizes available via SpeechModelCatalog (tiny, base, small)
 - Task: Transcribe 15-min audio chunks to text
-- Speed: ~45 seconds per 15-min chunk on 782G
-- Quality: Good for English, acceptable for Indian English accents
+- Speed: ~45 seconds per 15-min chunk (tiny model on 782G)
+- Multi-language support (configurable, default: Hindi)
 - When: During scheduled analysis time (batch all day's chunks)
 
-**Optional: Vosk (Real-time)**
-- Model: `vosk-model-small-en-in` (~50 MB, Indian English tuned)
-- Dependency: `com.alphacephei:vosk-android:0.3.32`
-- Task: Live captions while recording (user toggleable)
-- Speed: Real-time streaming
-- Quality: Good for live, less accurate than Whisper
-- When: While recording (if user enables)
-- Battery impact: Additional ~3-5% per hour
+### Layer 2: Transcript Post-Processing
 
-### Layer 2: Sentiment Analysis
+**TranscriptPostProcessor (on-device, rule-based)**
+- Cleans WhisperKit output artifacts (repetitions, filler words)
+- Normalizes punctuation and capitalization
+- Falls back to local processing when Claude Bridge unavailable
 
-**MobileBERT via TFLite**
-- Model: `mobilebert-sentiment.tflite` (~25 MB)
-- Dependency: `org.tensorflow:tensorflow-lite-task-text:0.4.4`
-- Task: Classify each transcript → positive / negative / neutral + confidence score
-- Speed: ~200ms per transcript on 782G
-- When: Immediately after transcription of each chunk
+**Claude Bridge /cleanup endpoint (when available)**
+- Higher quality cleanup preserving hesitations and natural speech patterns
+- Fixes transcription errors using language context
 
-### Layer 3: Keyword Extraction (Rule-Based)
+### Layer 3: Rich Behavioral Analysis
 
-**No ML model needed — pure Kotlin**
-- Person names: Capitalized word detection + frequency
-- Food/order mentions: Dictionary of food-related words
-- Time patterns: Regex for time expressions ("at 3 PM", "tomorrow")
-- Action items: Pattern matching ("need to", "should", "have to", "don't forget")
-- Topic frequency: TF-IDF style scoring across day's transcripts
-- Speed: Instant (<50ms per transcript)
+**Primary: Claude Bridge /analyze (structured JSON)**
+- Activity detection: eating, meeting, working, commuting, idle, phone_call, casual_chat, solo
+- Speaker identification: distinct voices with role and emotional state
+- Topic extraction: subjects with key points
+- Sentiment analysis: positive/negative/neutral with 0.0-1.0 score
+- Behavioral tags: rapid_speech, code_switching, leading_discussion, etc.
+- Key moments: significant conversation highlights
 
-### Layer 4: Daily Summary (Rule-Based)
+**Fallback: On-device MobileBERT + KeywordExtractor + TranscriptPostProcessor**
+- MobileBERT TFLite for sentiment classification (~200ms per transcript)
+- Rule-based keyword extraction: names, food, times, action items, TF-IDF scoring
+- TranscriptPostProcessor for activity heuristics from keywords
 
-**Template engine — no ML model**
-- Input: All transcripts + sentiments + keywords for the day
-- Output: Natural language summary using templates
+### Layer 4: Conversation Linking
 
-```
-Templates:
-- "You had {N} recording sessions today, totaling {duration}."
-- "Mood: {morning_sentiment} morning, {afternoon_sentiment} afternoon."
-- "You mentioned {keyword} {count} times."
-- "Most talked about: {top_topics}."
-- "You typically {pattern} around {time} — today was {same/different}."
-```
+**ConversationLinker**
+- Primary: Claude Bridge /link endpoint (cross-references chunks by person/topic/time)
+- Fallback: Heuristic linking
+  - Topic overlap (shared keywords/topics between chunks)
+  - Time-of-day patterns (same time slot across days)
+  - Sequential proximity (chunks within same session)
+- Link types: same_person, same_topic, same_time_slot, cause_effect, continuation
 
-### Layer 5: Pattern Detection (7+ days data)
+### Layer 5: Daily Insights
 
-**Statistical analysis — no ML model**
-- Routine detection: Cluster daily timestamps for recurring events
-- Mood trends: 7-day moving average of sentiment scores
-- Contact frequency: Who is mentioned most often
-- Habit tracking: Recurring keyword patterns (e.g., "gym" at 7 AM)
-- Predictions: "You usually order food at 1:15 PM" based on keyword+time clusters
+**InsightGenerator**
+- Primary: Claude Bridge /daily-insight endpoint (full daily narrative)
+- Fallback: Aggregation from transcriptions, activities, topics, people data
+- Produces: daily timeline, activity breakdown, top people, top topics, highlight
+
+### Layer 6: Predictions
+
+**PredictionEngine**
+- Primary: Claude Bridge /predict endpoint (pattern-based predictions)
+- Fallback: Heuristic analysis of weekly patterns
+  - Routine predictions (recurring activities at same time)
+  - Habit predictions (consistent daily patterns)
+  - Relationship predictions (interaction frequency changes)
+- Types: routine, anomaly, relationship, habit
+- Notification support for active predictions
 
 ## Model Storage Budget
 
 | Model | Size | Required |
 |-------|------|----------|
-| Whisper-tiny TFLite | 75 MB | Phase 2 |
-| Vosk Indian English | 50 MB | Phase 2 (optional) |
-| MobileBERT Sentiment | 25 MB | Phase 2 |
-| Rule-based engines | 0 MB | Phase 2 |
-| **Total** | **~150 MB** | |
+| WhisperKit tiny | ~75 MB | STT (primary) |
+| WhisperKit base | ~150 MB | STT (optional, higher quality) |
+| MobileBERT Sentiment | ~25 MB | Fallback sentiment |
+| Rule-based engines | 0 MB | Always available |
+| **Total** | **~100-250 MB** | |
 
 ## Processing Budget (Full Day)
 
@@ -99,80 +101,91 @@ Assuming 16-hour recording day = 64 chunks × 15 minutes:
 
 | Step | Per Chunk | All 64 Chunks | Battery |
 |------|-----------|---------------|---------|
-| Whisper-tiny transcription | ~45s | ~48 min | ~5-8% |
-| MobileBERT sentiment | ~200ms | ~13 sec | negligible |
-| Keyword extraction | ~50ms | ~3 sec | negligible |
-| Daily summary | — | instant | negligible |
-| **Total** | | **~50 min** | **~5-8%** |
+| WhisperKit transcription | ~45s | ~48 min | ~5-8% |
+| Claude Bridge rich analysis | ~5s | ~5 min | negligible |
+| Conversation linking | ~2s | ~2 min | negligible |
+| Daily insight generation | — | ~10s | negligible |
+| Prediction generation | — | ~10s | negligible |
+| **Total** | | **~55 min** | **~5-8%** |
 
-## Implementation Plan
+*When Claude Bridge unavailable, MobileBERT fallback reduces analysis time to ~50 min but with less rich output.*
 
-### File Structure (Phase 2)
+## Implementation (Current)
+
+### File Structure
 
 ```
 com.dc.murmur.ai/
 ├── stt/
-│   ├── WhisperTranscriber.kt     # TFLite Whisper-tiny batch processing
-│   ├── VoskTranscriber.kt        # Vosk real-time STT (optional)
-│   └── TranscriberInterface.kt   # Common interface
+│   └── WhisperKitTranscriber.kt  # WhisperKit on-device STT
 ├── nlp/
-│   ├── SentimentAnalyzer.kt      # MobileBERT TFLite
-│   └── KeywordExtractor.kt       # Rule-based extraction
-├── summary/
-│   └── DailySummaryGenerator.kt  # Template-based summaries
-├── patterns/
-│   └── PatternDetector.kt        # Statistical pattern analysis
-├── AnalysisWorker.kt             # WorkManager worker
-└── AnalysisScheduler.kt          # Schedule management
+│   ├── ClaudeCodeAnalyzer.kt     # HTTP client to Claude Bridge
+│   ├── KeywordExtractor.kt       # Rule-based extraction (fallback)
+│   └── TranscriptPostProcessor.kt # Transcript cleanup (fallback)
+├── AnalysisPipeline.kt           # decode → STT → rich analysis
+├── AnalysisWorker.kt             # WorkManager worker + post-analysis tasks
+├── AnalysisState.kt              # AnalysisStateHolder + AnalysisUiState
+├── AudioDecoder.kt               # M4A → PCM (MediaCodec)
+├── ModelManager.kt               # Model download, caching, paths
+├── SpeechModelCatalog.kt         # Available WhisperKit model definitions
+├── InsightGenerator.kt           # Daily insight aggregation
+├── ConversationLinker.kt         # Cross-chunk conversation linking
+├── PredictionEngine.kt           # Pattern-based predictions
+└── BridgeStatus.kt               # BridgeStatusHolder + BridgeUiState
 ```
 
-### Koin Modules (Phase 2 additions)
+### Koin Module (aiModule)
 
 ```kotlin
 val aiModule = module {
-    single { WhisperTranscriber(androidContext()) }
-    single { VoskTranscriber(androidContext()) }
-    single { SentimentAnalyzer(androidContext()) }
+    single { AudioDecoder() }
+    single { ModelManager(androidContext()) }
     single { KeywordExtractor() }
-    single { DailySummaryGenerator() }
-    single { PatternDetector(get()) }
-    single { AnalysisScheduler(androidContext(), get()) }
+    single { ClaudeCodeAnalyzer(get()) }
+    single { TranscriptPostProcessor() }
+    single { AnalysisPipeline(androidContext(), get(), get(), get(), get(), get(), get()) }
+    single { AnalysisStateHolder() }
+    single { BridgeStatusHolder() }
+    single { InsightGenerator(get(), get(), get(), get(), get()) }
+    single { ConversationLinker(get(), get(), get(), get()) }
+    single { PredictionEngine(get(), get(), get()) }
 }
 ```
 
-### Dependencies (Phase 2 additions to libs.versions.toml)
+## Claude Bridge Architecture
 
-```toml
-[versions]
-vosk = "0.3.32"
-tensorflowLite = "2.14.0"
-tensorflowLiteSupport = "0.4.4"
-tensorflowLiteTaskText = "0.4.4"
+The Claude Bridge is a Ktor HTTP server running in Termux that wraps the Claude CLI for on-device AI processing.
 
-[libraries]
-vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
-tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
-tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
-tensorflow-lite-task-text = { group = "org.tensorflow", name = "tensorflow-lite-task-text", version.ref = "tensorflowLiteTaskText" }
-```
+### Endpoints
+
+| Endpoint | Input | Output |
+|----------|-------|--------|
+| `POST /analyze` | transcript text | Rich JSON: activity, speakers, topics, sentiment, tags, key moment |
+| `POST /cleanup` | raw transcript | Cleaned transcript preserving natural speech |
+| `POST /link` | list of chunk summaries | Detected conversation links with types and explanations |
+| `POST /predict` | weekly activity/topic/people summaries | Pattern-based predictions with confidence |
+| `POST /daily-insight` | day's aggregated data | Narrative daily insight with highlight |
+| `GET /health` | — | `{"status":"ok"}` |
+
+### Fallback Strategy
+
+When Claude Bridge is unavailable:
+1. **STT**: WhisperKit still runs (on-device, no bridge needed)
+2. **Cleanup**: TranscriptPostProcessor handles basic cleanup
+3. **Analysis**: MobileBERT sentiment + KeywordExtractor + heuristic activity detection
+4. **Linking**: Heuristic topic overlap + time pattern matching
+5. **Insights**: Aggregation from available data (no narrative)
+6. **Predictions**: Heuristic weekly pattern analysis
 
 ## Model Download Strategy
 
-Models are NOT bundled in the APK (would make it 150+ MB). Instead:
+Models are NOT bundled in the APK. Instead:
 
 1. On first launch or when user enables analysis → show "Download AI Models" card
-2. Download models to `Documents/Murmur/models/` using WorkManager
-3. Show progress: "Downloading speech model... 45/75 MB"
-4. Models persist across app updates (external storage)
-5. User can delete models to free space (disable analysis)
-
-```
-Documents/Murmur/
-├── models/
-│   ├── whisper-tiny.tflite        (75 MB)
-│   ├── vosk-model-small-en-in/    (50 MB)
-│   └── mobilebert-sentiment.tflite (25 MB)
-```
+2. Download via ModelManager with progress tracking
+3. SpeechModelCatalog defines available models (tiny, base, small)
+4. Models persist across app updates
+5. User can delete models to free space
 
 ## What NOT To Do on 782G
 
