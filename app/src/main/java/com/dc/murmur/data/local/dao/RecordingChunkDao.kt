@@ -55,8 +55,17 @@ interface RecordingChunkDao {
     @Query("DELETE FROM recording_chunks WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("SELECT filePath FROM recording_chunks")
+    suspend fun getAllFilePaths(): List<String>
+
+    @Query("DELETE FROM recording_chunks")
+    suspend fun deleteAll()
+
     @Query("DELETE FROM recording_chunks WHERE date < :date")
     suspend fun deleteOlderThan(date: String)
+
+    @Query("UPDATE recording_chunks SET isProcessed = 0 WHERE isProcessed = 1")
+    suspend fun resetAllProcessed(): Int
 
     @Query("SELECT DISTINCT date FROM recording_chunks ORDER BY date DESC")
     fun getAllDates(): Flow<List<String>>

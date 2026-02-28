@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dc.murmur.data.local.entity.RecordingChunkEntity
 import org.koin.androidx.compose.koinViewModel
@@ -50,6 +52,8 @@ fun RecordingsScreen(viewModel: RecordingsViewModel = koinViewModel()) {
     var searchActive by remember { mutableStateOf(false) }
     val player = remember { AudioPlayer() }
     var chunkToDelete by remember { mutableStateOf<RecordingChunkEntity?>(null) }
+    var showDeleteAllDialog by remember { mutableStateOf(false) }
+    val previews by viewModel.transcriptionPreviews.collectAsState()
 
     DisposableEffect(Unit) { onDispose { player.destroy() } }
 
@@ -70,8 +74,40 @@ fun RecordingsScreen(viewModel: RecordingsViewModel = koinViewModel()) {
         )
     }
 
+    if (showDeleteAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllDialog = false },
+            title = { Text("Delete All Recordings") },
+            text = { Text("Delete all ${allChunks.size} recordings? All audio files will be permanently removed.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteAllChunks()
+                    showDeleteAllDialog = false
+                }) { Text("Delete All", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Recordings") }) }
+        topBar = {
+            TopAppBar(
+                title = { Text("Recordings") },
+                actions = {
+                    if (allChunks.isNotEmpty()) {
+                        IconButton(onClick = { showDeleteAllDialog = true }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "Delete All",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            )
+        }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -117,6 +153,13 @@ fun RecordingsScreen(viewModel: RecordingsViewModel = koinViewModel()) {
                                 val isPlaying by player.isPlaying.collectAsState()
                                 val currentFile by player.currentFilePath.collectAsState()
                                 val isThisPlaying = isPlaying && currentFile == chunk.filePath
+                                val preview = previews[chunk.id]
+
+                                LaunchedEffect(chunk.id) {
+                                    if (chunk.isProcessed) {
+                                        viewModel.loadTranscriptionPreview(chunk.id)
+                                    }
+                                }
 
                                 RecordingChunkCard(
                                     fileName = chunk.fileName,
@@ -124,6 +167,7 @@ fun RecordingsScreen(viewModel: RecordingsViewModel = koinViewModel()) {
                                     size = viewModel.formatBytes(chunk.fileSizeBytes),
                                     interruptedBy = chunk.interruptedBy,
                                     isPlaying = isThisPlaying,
+                                    transcriptPreview = preview,
                                     onPlayPause = { player.togglePlayPause(chunk.filePath) },
                                     onDelete = { chunkToDelete = chunk },
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
@@ -144,6 +188,7 @@ private fun RecordingChunkCard(
     size: String,
     interruptedBy: String?,
     isPlaying: Boolean,
+    transcriptPreview: String?,
     onPlayPause: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -172,6 +217,16 @@ private fun RecordingChunkCard(
                         text = interruptedBy,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (transcriptPreview != null) {
+                    Text(
+                        text = transcriptPreview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }

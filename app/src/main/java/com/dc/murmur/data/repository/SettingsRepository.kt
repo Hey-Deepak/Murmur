@@ -37,6 +37,7 @@ class SettingsRepository(private val context: Context) {
     private val keyActiveSpeechModel = stringPreferencesKey(AppConstants.PREF_ACTIVE_SPEECH_MODEL)
     private val keyClaudeBridgePort  = intPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_PORT)
     private val keyClaudeBridgeAutoStart = booleanPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_AUTO_START)
+    private val keyTranscriptionLanguage = stringPreferencesKey(AppConstants.PREF_TRANSCRIPTION_LANGUAGE)
 
     // --- Recording state ---
     val wasRecording: Flow<Boolean> = ds.data.map { it[keyWasRecording] ?: false }
@@ -110,4 +111,9 @@ class SettingsRepository(private val context: Context) {
 
     val claudeBridgeAutoStart: Flow<Boolean> = ds.data.map { it[keyClaudeBridgeAutoStart] ?: false }
     suspend fun setClaudeBridgeAutoStart(enabled: Boolean) { ds.edit { it[keyClaudeBridgeAutoStart] = enabled } }
+
+    // --- Transcription language ---
+    val transcriptionLanguage: Flow<String> = ds.data.map { it[keyTranscriptionLanguage] ?: "hi" }
+    suspend fun getTranscriptionLanguage(): String = transcriptionLanguage.first()
+    suspend fun setTranscriptionLanguage(language: String) { ds.edit { it[keyTranscriptionLanguage] = language } }
 }

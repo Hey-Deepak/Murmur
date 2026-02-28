@@ -1,11 +1,27 @@
 package com.dc.murmur.ai
 
+import android.content.Context
+import android.util.Log
 import com.dc.murmur.ai.nlp.ClaudeCodeAnalyzer
 import com.dc.murmur.ai.nlp.KeywordExtractor
-import com.dc.murmur.ai.nlp.SentimentAnalyzer
-import com.dc.murmur.ai.stt.VoskTranscriber
-import com.dc.murmur.ai.stt.WhisperTranscriber
+import com.dc.murmur.ai.nlp.TranscriptPostProcessor
+import com.dc.murmur.ai.stt.WhisperKitTranscriber
 import com.dc.murmur.data.repository.SettingsRepository
+
+data class SpeakerResult(
+    val label: String,
+    val speakingRatio: Float,
+    val turnCount: Int,
+    val role: String?,
+    val emotionalState: String?
+)
+
+data class TopicResult(
+    val name: String,
+    val relevance: Float,
+    val category: String?,
+    val keyPoints: List<String>
+)
 
 data class AnalysisResult(
     val chunkId: Long,
@@ -13,20 +29,29 @@ data class AnalysisResult(
     val sentiment: String,
     val sentimentScore: Float,
     val keywords: String,
-    val modelUsed: String
+    val modelUsed: String,
+    val activityType: String? = null,
+    val activityConfidence: Float? = null,
+    val activitySubType: String? = null,
+    val speakers: List<SpeakerResult> = emptyList(),
+    val topics: List<TopicResult> = emptyList(),
+    val behavioralTags: List<String> = emptyList(),
+    val keyMoment: String? = null
 )
 
 class AnalysisPipeline(
+    private val context: Context,
     private val audioDecoder: AudioDecoder,
     private val modelManager: ModelManager,
-    private val sentimentAnalyzer: SentimentAnalyzer,
     private val keywordExtractor: KeywordExtractor,
     private val settingsRepo: SettingsRepository,
-    private val claudeAnalyzer: ClaudeCodeAnalyzer
+    private val claudeAnalyzer: ClaudeCodeAnalyzer,
+    private val postProcessor: TranscriptPostProcessor
 ) {
 
     private var currentModelId: String? = null
     private var currentTranscriber: Transcriber? = null
+    private var currentLanguage: String? = null
 
     private var onLog: ((String) -> Unit)? = null
     private var onStep: ((String) -> Unit)? = null
@@ -44,7 +69,12 @@ class AnalysisPipeline(
     }
 
     private fun log(message: String) {
+        Log.w(TAG, message)
         onLog?.invoke(message)
+    }
+
+    companion object {
+        private const val TAG = "AnalysisPipeline"
     }
 
     suspend fun initialize(onDownloadProgress: (Float) -> Unit = {}) {
@@ -52,41 +82,45 @@ class AnalysisPipeline(
         val modelInfo = SpeechModelCatalog.findById(activeModelId)
             ?: SpeechModelCatalog.findById(SpeechModelCatalog.defaultModelId)!!
 
-        log("Active model: ${modelInfo.id} (${modelInfo.provider.name})")
+        val language = settingsRepo.getTranscriptionLanguage()
 
-        // Close old transcriber if model changed
-        if (currentModelId != null && currentModelId != modelInfo.id) {
-            log("Switching from $currentModelId to ${modelInfo.id}")
+        log("Active model: ${modelInfo.id} (${modelInfo.provider.name}), language: $language")
+
+        // Close old transcriber if model or language changed
+        val needsRecreate = (currentModelId != null && currentModelId != modelInfo.id) ||
+            (currentLanguage != null && currentLanguage != language)
+
+        if (needsRecreate) {
+            log("Switching from $currentModelId/$currentLanguage to ${modelInfo.id}/$language")
             currentTranscriber?.close()
             currentTranscriber = null
         }
 
-        log("Ensuring model downloaded...")
-        val modelDir = modelManager.ensureModel(modelInfo.id, onDownloadProgress)
-        log("Model ready at: ${modelDir.name}")
-
+        // WhisperKit manages its own model downloads from HuggingFace
+        log("WhisperKit model: ${modelInfo.whisperKitVariant}")
         if (currentTranscriber == null) {
-            currentTranscriber = when (modelInfo.provider) {
-                SpeechProvider.VOSK -> VoskTranscriber()
-                SpeechProvider.WHISPER -> WhisperTranscriber()
-            }
-            log("Created ${modelInfo.provider.name} transcriber")
+            currentTranscriber = WhisperKitTranscriber(
+                context = context,
+                whisperKitVariant = modelInfo.whisperKitVariant,
+                onDownloadProgress = onDownloadProgress
+            )
+            log("Created WhisperKit transcriber (variant=${modelInfo.whisperKitVariant})")
         }
-        currentTranscriber!!.initialize(modelDir)
+        // initialize() triggers model download + load internally
+        currentTranscriber!!.initialize(java.io.File(""))
         currentModelId = modelInfo.id
+        currentLanguage = language
         log("Transcriber initialized")
 
         if (claudeAnalyzer.isAvailable()) {
-            log("Claude Code detected — skipping sentiment model download")
+            log("Claude Code bridge detected")
         } else {
-            modelManager.ensureSentimentModel()
-            sentimentAnalyzer.initialize(modelManager.sentimentModelPath)
-            log("Sentiment model ready (fallback)")
+            log("Claude Code bridge unavailable — will use on-device fallback")
         }
     }
 
     fun isReady(): Boolean {
-        return currentModelId != null && modelManager.isModelReady(currentModelId!!)
+        return currentModelId != null && currentTranscriber != null
     }
 
     suspend fun processChunk(chunkId: Long, filePath: String): AnalysisResult {
@@ -97,7 +131,7 @@ class AnalysisPipeline(
         log("--- Chunk #$chunkId: $fileName ---")
 
         // 1. Decode M4A -> PCM
-        step("Step 1/3 · Decoding audio (MediaCodec)")
+        step("Step 1/4 · Decoding audio (MediaCodec)")
         log("Decoding audio...")
         val pcm = audioDecoder.decode(filePath)
         val durationSec = pcm.data.size / 2f / pcm.sampleRate
@@ -105,35 +139,77 @@ class AnalysisPipeline(
 
         // 2. Transcribe PCM -> text
         val modelName = currentModelId ?: "unknown"
-        step("Step 2/3 · Transcribing ($modelName)")
+        step("Step 2/4 · Transcribing ($modelName)")
         log("Transcribing with $modelName...")
-        val text = transcriber.transcribe(pcm.data, pcm.sampleRate)
-        if (text.isBlank()) {
+        val rawText = transcriber.transcribe(pcm.data, pcm.sampleRate)
+        if (rawText.isBlank()) {
             log("Result: (empty/silence)")
         } else {
-            log("Result: \"${text.take(120)}\"")
+            log("Result: \"${rawText.take(120)}\"")
         }
 
-        // 3 & 4. NLP — Claude Code if available, otherwise MobileBERT + rules
-        return if (claudeAnalyzer.isAvailable()) {
-            step("Step 3/3 · Summarizing (Claude Code)")
-            log("Analyzing with Claude Code...")
-            val analysis = claudeAnalyzer.analyze(text)
-            log("Claude → sentiment=${analysis.sentiment} (${String.format("%.2f", analysis.sentimentScore)})")
-            AnalysisResult(
-                chunkId = chunkId,
-                text = text,
-                sentiment = analysis.sentiment,
-                sentimentScore = analysis.sentimentScore,
-                keywords = analysis.keywordsJson,
-                modelUsed = "${currentModelId ?: "unknown"}+claude-code"
-            )
+        // 3. Cleanup transcript — Claude bridge if available, fallback to on-device
+        step("Step 3/4 · Cleaning up transcript")
+        val text = if (rawText.isBlank()) {
+            rawText
         } else {
-            // Fallback: on-device MobileBERT + rule-based extraction
-            step("Step 3/3 · Analyzing (MobileBERT on-device)")
-            val sentiment = sentimentAnalyzer.analyze(text)
-            log("Sentiment: ${sentiment.sentiment} (${String.format("%.2f", sentiment.score)})")
+            val claudeCleanup = if (claudeAnalyzer.isAvailable()) {
+                log("Attempting Claude cleanup...")
+                claudeAnalyzer.cleanup(rawText)
+            } else null
 
+            if (claudeCleanup != null) {
+                log("Claude cleanup applied")
+                claudeCleanup
+            } else {
+                log("Using on-device post-processing")
+                postProcessor.process(rawText)
+            }
+        }
+
+        if (text != rawText && text.isNotBlank()) {
+            log("Cleaned: \"${text.take(120)}\"")
+        }
+
+        // 4. NLP — Claude Code if available, otherwise rule-based extraction
+        return if (claudeAnalyzer.isAvailable()) {
+            step("Step 4/4 · Analyzing (Claude Code)")
+            log("Analyzing with Claude Code (rich mode)...")
+            val richAnalysis = claudeAnalyzer.analyzeRich(text)
+            if (richAnalysis != null) {
+                log("Claude Rich → sentiment=${richAnalysis.sentiment}, activity=${richAnalysis.activityType}, speakers=${richAnalysis.speakers.size}, topics=${richAnalysis.topics.size}")
+                AnalysisResult(
+                    chunkId = chunkId,
+                    text = text,
+                    sentiment = richAnalysis.sentiment,
+                    sentimentScore = richAnalysis.sentimentScore,
+                    keywords = richAnalysis.keywordsJson,
+                    modelUsed = "${currentModelId ?: "unknown"}+claude-code-v2",
+                    activityType = richAnalysis.activityType,
+                    activityConfidence = richAnalysis.activityConfidence,
+                    activitySubType = richAnalysis.activitySubType,
+                    speakers = richAnalysis.speakers,
+                    topics = richAnalysis.topics,
+                    behavioralTags = richAnalysis.behavioralTags,
+                    keyMoment = richAnalysis.keyMoment
+                )
+            } else {
+                // Fallback to basic analysis
+                log("Rich analysis failed, falling back to basic...")
+                val analysis = claudeAnalyzer.analyze(text)
+                log("Claude → sentiment=${analysis.sentiment} (${String.format("%.2f", analysis.sentimentScore)})")
+                AnalysisResult(
+                    chunkId = chunkId,
+                    text = text,
+                    sentiment = analysis.sentiment,
+                    sentimentScore = analysis.sentimentScore,
+                    keywords = analysis.keywordsJson,
+                    modelUsed = "${currentModelId ?: "unknown"}+claude-code"
+                )
+            }
+        } else {
+            // Fallback: rule-based keyword extraction only
+            step("Step 4/4 · Extracting keywords (on-device)")
             val keywords = keywordExtractor.extract(text)
             val keywordsJson = keywordExtractor.toJson(keywords)
             if (keywords.isNotEmpty()) {
@@ -143,8 +219,8 @@ class AnalysisPipeline(
             AnalysisResult(
                 chunkId = chunkId,
                 text = text,
-                sentiment = sentiment.sentiment,
-                sentimentScore = sentiment.score,
+                sentiment = "neutral",
+                sentimentScore = 0.5f,
                 keywords = keywordsJson,
                 modelUsed = currentModelId ?: "unknown"
             )
@@ -155,6 +231,6 @@ class AnalysisPipeline(
         currentTranscriber?.close()
         currentTranscriber = null
         currentModelId = null
-        sentimentAnalyzer.close()
+        currentLanguage = null
     }
 }

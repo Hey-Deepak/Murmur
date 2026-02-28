@@ -3,56 +3,64 @@
 ## System Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│                   UI Layer                        │
-│  ┌──────────┐  ┌────────────┐  ┌──────────────┐ │
-│  │  Home     │  │ Recordings │  │    Stats     │ │
-│  │  Screen   │  │   Screen   │  │   Screen     │ │
-│  └────┬─────┘  └─────┬──────┘  └──────┬───────┘ │
-│       │               │                │          │
-│  ┌────┴─────┐  ┌─────┴──────┐  ┌──────┴───────┐ │
-│  │  Home    │  │ Recordings │  │    Stats     │ │
-│  │ViewModel │  │  ViewModel │  │  ViewModel   │ │
-│  └────┬─────┘  └─────┬──────┘  └──────┬───────┘ │
-├───────┼───────────────┼────────────────┼──────────┤
-│       │          Data Layer            │          │
-│  ┌────┴────────────────────────────────┴───────┐ │
-│  │            Repositories                      │ │
-│  │  ┌──────────────┐  ┌──────────────────────┐ │ │
-│  │  │  Recording   │  │     Battery          │ │ │
-│  │  │  Repository  │  │    Repository        │ │ │
-│  │  └──────┬───────┘  └──────────┬───────────┘ │ │
-│  │         │    ┌────────────────┐│             │ │
-│  │         │    │   Settings     ││             │ │
-│  │         │    │  Repository    ││             │ │
-│  │         │    └───────┬────────┘│             │ │
-│  └─────────┼────────────┼─────────┼─────────────┘ │
-├────────────┼────────────┼─────────┼───────────────┤
-│            │      Local Storage   │               │
-│  ┌─────────┴────────────┴─────────┴────────────┐ │
-│  │              Room Database                   │ │
-│  │  ┌─────────────┐ ┌──────────┐ ┌───────────┐│ │
-│  │  │  Chunk DAO  │ │Session   │ │Battery    ││ │
-│  │  │             │ │  DAO     │ │Log DAO    ││ │
-│  │  └─────────────┘ └──────────┘ └───────────┘│ │
-│  └─────────────────────────────────────────────┘ │
-│  ┌─────────────────────────────────────────────┐ │
-│  │           DataStore Preferences              │ │
-│  └─────────────────────────────────────────────┘ │
-├──────────────────────────────────────────────────┤
-│                Service Layer                      │
-│  ┌──────────────────────────────────────────────┐│
-│  │          RecordingService                     ││
-│  │  (Foreground Service + MediaRecorder)         ││
-│  │  ┌──────────────┐  ┌───────────────────────┐ ││
-│  │  │ Chunk Timer  │  │ Audio Focus Manager   │ ││
-│  │  └──────────────┘  └───────────────────────┘ ││
-│  └──────────────────────────────────────────────┘│
-│  ┌─────────────┐ ┌───────────┐ ┌──────────────┐ │
-│  │CallState    │ │Boot       │ │Battery       │ │
-│  │Receiver     │ │Receiver   │ │Worker        │ │
-│  └─────────────┘ └───────────┘ └──────────────┘ │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                         UI Layer (5 tabs)                      │
+│  ┌────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐ ┌────────┐ │
+│  │  Home  │ │Recordings│ │ Insights │ │ People │ │ Stats  │ │
+│  │ Screen │ │  Screen  │ │  Screen  │ │ Screen │ │ Screen │ │
+│  └───┬────┘ └────┬─────┘ └────┬─────┘ └───┬────┘ └───┬────┘ │
+│      │           │            │            │          │       │
+│  ┌───┴────┐ ┌────┴─────┐ ┌───┴──────┐ ┌──┴─────┐ ┌──┴────┐ │
+│  │ HomeVM │ │RecordVM  │ │InsightVM │ │PeopleVM│ │StatsVM│ │
+│  └───┬────┘ └────┬─────┘ └────┬─────┘ └───┬────┘ └───┬────┘ │
+├──────┼───────────┼────────────┼────────────┼──────────┼───────┤
+│      │              Repository Layer                  │       │
+│  ┌───┴───────────────────────────────────────────────┴─────┐ │
+│  │  Recording │ Battery │ Settings │ Analysis │ Insights │  │ │
+│  │  Repository│ Repo    │ Repo     │ Repo     │ Repo     │  │ │
+│  │            │         │          │          │ People   │  │ │
+│  │            │         │          │          │ Repo     │  │ │
+│  └───┬────────┴─────────┴──────────┴──────────┴──────────┘  │
+├──────┼───────────────────────────────────────────────────────┤
+│      │               Room Database (v3)                       │
+│  ┌───┴─────────────────────────────────────────────────────┐ │
+│  │ ChunkDAO │ SessionDAO │ BatteryDAO │ TranscriptionDAO   │ │
+│  │ ActivityDAO │ VoiceProfileDAO │ SpeakerSegmentDAO       │ │
+│  │ TopicDAO │ ConversationLinkDAO │ DailyInsightDAO        │ │
+│  │ PredictionDAO                                           │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │              DataStore Preferences                       │ │
+│  └─────────────────────────────────────────────────────────┘ │
+├──────────────────────────────────────────────────────────────┤
+│                    AI / Analysis Layer                         │
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │ AnalysisWorker (WorkManager)                              ││
+│  │  ├─ AnalysisPipeline (decode → STT → rich analysis)      ││
+│  │  ├─ ConversationLinker (topic/time/person links)          ││
+│  │  ├─ InsightGenerator (daily aggregated insights)          ││
+│  │  └─ PredictionEngine (routine/anomaly/relationship)       ││
+│  └──────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────┐  ┌─────────────────────────────────┐│
+│  │ WhisperKit (STT)    │  │ Claude Bridge (Termux:8735)     ││
+│  │ MobileBERT (fallback│  │  /analyze /cleanup /link        ││
+│  │ KeywordExtractor    │  │  /predict /daily-insight         ││
+│  │ PostProcessor       │  │  JSON structured analysis       ││
+│  └─────────────────────┘  └─────────────────────────────────┘│
+├──────────────────────────────────────────────────────────────┤
+│                     Service Layer                              │
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │          RecordingService                                 ││
+│  │  (Foreground Service + MediaRecorder)                     ││
+│  │  ┌──────────────┐  ┌───────────────────────┐             ││
+│  │  │ Chunk Timer  │  │ Audio Focus Manager   │             ││
+│  │  └──────────────┘  └───────────────────────┘             ││
+│  └──────────────────────────────────────────────────────────┘│
+│  ┌─────────────┐ ┌───────────┐ ┌──────────────┐             │
+│  │CallState    │ │Boot       │ │Battery       │             │
+│  │Receiver     │ │Receiver   │ │Worker        │             │
+│  └─────────────┘ └───────────┘ └──────────────┘             │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Dependency Injection (Koin)
@@ -64,24 +72,27 @@ All dependencies are provided via Koin modules defined in `di/AppModule.kt`:
 ```
 databaseModule
   └─ MurmurDatabase (singleton)
-  └─ RecordingChunkDao (singleton)
-  └─ SessionDao (singleton)
-  └─ BatteryLogDao (singleton)
+  └─ RecordingChunkDao, SessionDao, BatteryLogDao, TranscriptionDao
+  └─ ActivityDao, VoiceProfileDao, SpeakerSegmentDao
+  └─ TopicDao, ConversationLinkDao, DailyInsightDao, PredictionDao
 
 utilModule
-  └─ StorageUtil (singleton)
-  └─ BatteryUtil (singleton)
-  └─ NotificationUtil (singleton)
+  └─ StorageUtil, BatteryUtil, NotificationUtil
+  └─ TermuxBridgeManager
+
+aiModule
+  └─ AudioDecoder, ModelManager
+  └─ KeywordExtractor, ClaudeCodeAnalyzer, TranscriptPostProcessor
+  └─ AnalysisPipeline, AnalysisStateHolder, BridgeStatusHolder
+  └─ InsightGenerator, ConversationLinker, PredictionEngine
 
 repositoryModule
-  └─ RecordingRepository (singleton)
-  └─ BatteryRepository (singleton)
-  └─ SettingsRepository (singleton)
+  └─ RecordingRepository, BatteryRepository, SettingsRepository
+  └─ AnalysisRepository, InsightsRepository, PeopleRepository
 
 viewModelModule
-  └─ HomeViewModel (viewModel factory)
-  └─ RecordingsViewModel (viewModel factory)
-  └─ StatsViewModel (viewModel factory)
+  └─ HomeViewModel, RecordingsViewModel, TranscriptionsViewModel
+  └─ InsightsViewModel, PeopleViewModel, StatsViewModel
 ```
 
 ### Accessing in Compose
@@ -238,17 +249,92 @@ START
 - processedAt: Long
 - modelUsed: String
 
+### Version 3 (Phase 3 — Life Intelligence)
+
+**TranscriptionEntity** (extended)
+- activityType: String? (eating/meeting/working/commuting/idle/phone_call/casual_chat/solo)
+- speakerCount: Int?
+- topicsSummary: String? (JSON)
+- behavioralTags: String? (JSON)
+- keyMoment: String?
+- analysisVersion: Int (1=legacy, 2=rich)
+
+**ActivityEntity**
+- id: Long (PK, auto)
+- chunkId: Long (FK → RecordingChunkEntity, CASCADE)
+- activityType: String
+- confidence: Float (0.0-1.0)
+- startTime: Long, endTime: Long, durationMs: Long
+- subActivity: String?
+
+**VoiceProfileEntity**
+- id: Long (PK, auto)
+- voiceId: String (UNIQUE)
+- label: String?
+- photoUri: String?
+- firstSeen: Long, lastSeen: Long
+- interactionCount: Int
+
+**SpeakerSegmentEntity**
+- id: Long (PK, auto)
+- chunkId: Long (FK → RecordingChunkEntity, CASCADE)
+- voiceProfileId: Long? (FK → VoiceProfileEntity, SET_NULL)
+- speakingDurationMs: Long, turnCount: Int
+- role: String?, emotionalState: String?
+
+**TopicEntity**
+- id: Long (PK, auto)
+- name: String (UNIQUE)
+- mentionCount: Int
+- firstSeen: Long, lastSeen: Long
+- category: String?
+
+**ChunkTopicEntity** (junction)
+- chunkId: Long (PK, FK → RecordingChunkEntity, CASCADE)
+- topicId: Long (PK, FK → TopicEntity, CASCADE)
+- relevance: Float, keyPoints: String?
+
+**ConversationLinkEntity**
+- id: Long (PK, auto)
+- sourceChunkId: Long (FK → RecordingChunkEntity, CASCADE)
+- targetChunkId: Long (FK → RecordingChunkEntity, CASCADE)
+- linkType: String (same_person/same_topic/same_time_slot/cause_effect/continuation)
+- confidence: Float, explanation: String?
+
+**DailyInsightEntity**
+- date: String (PK, YYYY-MM-DD)
+- totalRecordingMs: Long, totalAnalyzedChunks: Int
+- dominantActivity: String?, dominantTopic: String?
+- overallSentimentScore: Float
+- highlight: String?, summary: String?
+- timelineJson: String?, activityBreakdownJson: String?
+- topPeopleJson: String?, topTopicsJson: String?
+- generatedAt: Long
+
+**PredictionEntity**
+- id: Long (PK, auto)
+- type: String (routine/anomaly/relationship/habit)
+- message: String, confidence: Float (0.0-1.0)
+- basedOnDays: Int
+- predictedFor: String (YYYY-MM-DD)
+- createdAt: Long
+- dismissed: Boolean, fulfilled: Boolean?
+
 ## Navigation
 
 ```
 NavHost (startDestination = "home")
-  ├─ "home"       → HomeScreen
-  ├─ "recordings" → RecordingsScreen
-  └─ "stats"      → StatsScreen
+  ├─ "home"           → HomeScreen
+  ├─ "recordings"     → RecordingsScreen
+  ├─ "insights"       → InsightsScreen (Daily/Weekly/Transcripts tabs)
+  ├─ "people"         → PeopleScreen (list + detail views)
+  └─ "stats"          → StatsScreen
 
-Bottom Navigation: M3 NavigationBar with 3 items
+Bottom Navigation: M3 NavigationBar with 5 items
   ├─ Home (mic icon)
   ├─ Recordings (headphones icon)
+  ├─ Insights (psychology icon)
+  ├─ People (people icon)
   └─ Stats (bar chart icon)
 ```
 

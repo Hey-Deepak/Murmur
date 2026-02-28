@@ -140,20 +140,86 @@
 - `ui/components/TranscriptionCard.kt` — Compose card displaying transcript text, sentiment badge (colored chip), keyword chips
 - `ui/components/AnalyzeButton.kt` — Compose button that enqueues AnalysisWorker; observes AnalysisStateHolder to show progress bar and status text
 
-### Not yet implemented
-- `ai/stt/WhisperTranscriber.kt` — Whisper-tiny TFLite (planned alternative to Vosk)
-- `ai/summary/DailySummaryGenerator.kt` — Daily summary template engine
-- `ai/patterns/PatternDetector.kt` — 7-day routine / pattern detection
-- `feature/insights/InsightsScreen.kt` — Insights feed with mood timeline and keyword cloud
+---
+
+## [0.11.0] — Claude Bridge Integration
+
+### Added
+- `claude-bridge/` module — Ktor HTTP server wrapping Claude CLI for on-device AI
+  - `POST /analyze` — Structured behavioral analysis (sentiment, activity, speakers, topics)
+  - `POST /cleanup` — Transcript post-processing preserving natural speech
+  - `GET /health` — Bridge health check
+- `ai/nlp/ClaudeCodeAnalyzer.kt` — HTTP client for Claude Bridge communication
+- `ai/nlp/TranscriptPostProcessor.kt` — Fallback transcript cleanup when bridge unavailable
+- `ai/stt/WhisperKitTranscriber.kt` — WhisperKit on-device STT (replaced Vosk/TFLite Whisper)
+- `ai/SpeechModelCatalog.kt` — Downloadable model catalog (tiny, base, small)
+- `ai/ModelDownloadState.kt` — Download progress tracking
+- `ai/BridgeStatus.kt` — BridgeStatusHolder + BridgeUiState for UI
+- `core/util/TermuxBridgeManager.kt` — Start/stop bridge via Termux, install scripts
+- Claude Bridge controls in Stats screen (start/stop, port config, auto-start toggle)
+- Updated AnalysisPipeline to use Claude Bridge with MobileBERT fallback
+
+### Removed
+- `ai/stt/VoskTranscriber.kt` — Replaced by WhisperKit
+- `ai/stt/WhisperTranscriber.kt` — Replaced by WhisperKit
+- `ai/nlp/SentimentAnalyzer.kt` — Replaced by Claude Bridge analysis
+
+---
+
+## [1.0.0] — 2026-02-28 — Life Intelligence System
+
+### Phase 3.1: Data Foundation
+- 8 new Room entities: ActivityEntity, VoiceProfileEntity, SpeakerSegmentEntity, TopicEntity, ChunkTopicEntity, ConversationLinkEntity, DailyInsightEntity, PredictionEntity
+- 7 new DAOs: ActivityDao, VoiceProfileDao, SpeakerSegmentDao, TopicDao, ConversationLinkDao, DailyInsightDao, PredictionDao
+- Room MIGRATION_2_3 with full SQL for all new tables and indices
+- TranscriptionEntity extended with 6 new columns (activityType, speakerCount, topicsSummary, behavioralTags, keyMoment, analysisVersion)
+- InsightsRepository and PeopleRepository
+
+### Phase 3.2: Claude Bridge Enhancements
+- Rich analysis prompt returning structured JSON (activity, speakers, topics, behavioral tags, key moments)
+- New bridge endpoints: `POST /link`, `POST /predict`, `POST /daily-insight`
+- `ClaudeCodeAnalyzer.analyzeRich()` with structured JSON parsing and fallback
+- `AnalysisRepository.saveFullAnalysis()` — saves activities, speaker segments, topics, chunk-topics
+- AnalysisPipeline extended with SpeakerResult, TopicResult data classes
+
+### Phase 3.3: Insights Screen
+- `ai/InsightGenerator.kt` — Generates daily insights via Claude or local aggregation
+- `feature/insights/InsightsViewModel.kt` — Daily/weekly/transcripts views with date navigation
+- `feature/insights/InsightsScreen.kt` — 3-tab view (Daily, Weekly, Transcripts) with date arrows, insight highlights, activity breakdown, timeline blocks, predictions, search
+- `ui/components/TimelineBlock.kt` — Activity timeline card with icon/color, expandable details
+- `ui/components/ActivityBreakdownChart.kt` — Stacked bar chart with legend
+- `ui/components/InsightCard.kt` — Rich analysis card with activity badge, topics, behavioral tags
+- `ui/components/PredictionCard.kt` — Prediction display with type icon, confidence, dismiss
+- Navigation updated: Insights tab (Psychology icon) replaces Transcriptions
+
+### Phase 3.4: People Screen
+- `feature/people/PeopleViewModel.kt` — Tagged/untagged profiles, detail view with segments
+- `feature/people/PeopleScreen.kt` — List view with tag buttons, detail view with stats and interaction history
+- `ui/components/PersonCard.kt` — Profile card with initials avatar, interaction stats
+- `ui/components/VoiceTagDialog.kt` — Dialog for naming voice profiles
+- Navigation updated: People added as 5th bottom tab
+
+### Phase 3.5: Linked Conversations + Predictions
+- `ai/ConversationLinker.kt` — Claude /link endpoint + heuristic fallback (topic overlap, time patterns, proximity)
+- `ai/PredictionEngine.kt` — Claude /predict endpoint + heuristic fallback (routine, habit, relationship)
+- Prediction notifications via NotificationUtil
+- AnalysisWorker post-processing: conversation linking after each chunk, daily insights + predictions after all chunks
+
+### Phase 3.6: Stats Enhancements
+- `ui/components/ActivityTrendChart.kt` — 7-day stacked activity columns
+- `ui/components/SentimentTrendChart.kt` — 30-day sentiment line chart with average
+- Top People This Week and Top Topics This Week cards on Stats screen
+- StatsViewModel extended with trend data from InsightsRepository + PeopleRepository
 
 ---
 
 ## Upcoming
 
-### [1.0.0] — Step 10: Build, Deploy & Test on Nord CE 3
-- Gradle build via Buddy → deploy to OnePlus Nord CE 3
+### [1.1.0] — Deploy & Test on Nord CE 3
+- Gradle build → deploy to OnePlus Nord CE 3
 - Full lifecycle testing (background, screen off, app switch, recent apps kill)
 - Phone call handling (incoming, outgoing, WhatsApp, reject)
 - OxygenOS battery kill resilience
 - Long-duration test (4+ hours), measure real battery drain
-- Edge cases (storage full, permission revoked, airplane mode)
+- Claude Bridge integration testing (start/stop, analysis pipeline)
+- Edge cases (storage full, permission revoked, bridge unavailable)

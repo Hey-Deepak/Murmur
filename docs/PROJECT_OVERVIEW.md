@@ -1,6 +1,6 @@
 # Murmur — Project Overview
 
-> An always-listening Android app that records audio continuously, observes behavioral patterns, and provides predictive guidance through on-device AI analysis.
+> A passive life intelligence system that records audio continuously, analyzes behavioral patterns through Claude AI, identifies people by voice, tracks topics and activities, and provides predictive guidance — all on-device.
 
 ## Vision
 
@@ -48,51 +48,77 @@ Koin was chosen over Hilt because:
 
 ```
 com.dc.murmur/
-├── MurmurApplication.kt          # Koin init + notification channels
-├── MainActivity.kt                # Single activity, Compose host
+├── MurmurApplication.kt             # Koin init + notification channels
+├── MainActivity.kt                   # Single activity, Compose host
 ├── core/
-│   ├── constants/AppConstants.kt  # All app-wide constants
+│   ├── constants/AppConstants.kt     # All app-wide constants
 │   └── util/
-│       ├── StorageUtil.kt         # File management, paths, cleanup
-│       ├── BatteryUtil.kt         # Battery level, charging state
-│       └── NotificationUtil.kt    # Foreground + progress notifications
+│       ├── StorageUtil.kt            # File management, paths, cleanup
+│       ├── BatteryUtil.kt            # Battery level, charging state
+│       ├── NotificationUtil.kt       # Foreground + progress + prediction notifications
+│       └── TermuxBridgeManager.kt    # Termux integration for Claude Bridge
 ├── data/
 │   ├── local/
-│   │   ├── MurmurDatabase.kt     # Room database (v1)
+│   │   ├── MurmurDatabase.kt        # Room database (v3, 12 entities, 11 DAOs)
 │   │   ├── entity/
 │   │   │   ├── RecordingChunkEntity.kt
 │   │   │   ├── SessionEntity.kt
 │   │   │   ├── BatteryLogEntity.kt
-│   │   │   └── TranscriptionEntity.kt
+│   │   │   ├── TranscriptionEntity.kt     # Extended with rich analysis fields
+│   │   │   ├── TranscriptionWithChunk.kt  # Join projection
+│   │   │   ├── ActivityEntity.kt          # Activity detection per chunk
+│   │   │   ├── VoiceProfileEntity.kt      # Speaker identity profiles
+│   │   │   ├── SpeakerSegmentEntity.kt    # Speaker-chunk junction
+│   │   │   ├── TopicEntity.kt             # Extracted topics
+│   │   │   ├── ChunkTopicEntity.kt        # Chunk-topic junction
+│   │   │   ├── ConversationLinkEntity.kt  # Cross-chunk links
+│   │   │   ├── DailyInsightEntity.kt      # Aggregated daily insights
+│   │   │   └── PredictionEntity.kt        # Pattern-based predictions
 │   │   └── dao/
 │   │       ├── RecordingChunkDao.kt
 │   │       ├── SessionDao.kt
 │   │       ├── BatteryLogDao.kt
-│   │       └── TranscriptionDao.kt
+│   │       ├── TranscriptionDao.kt
+│   │       ├── ActivityDao.kt             # + ActivityTimeBreakdown
+│   │       ├── VoiceProfileDao.kt
+│   │       ├── SpeakerSegmentDao.kt       # + SpeakerSegmentWithDate
+│   │       ├── TopicDao.kt
+│   │       ├── ConversationLinkDao.kt
+│   │       ├── DailyInsightDao.kt
+│   │       └── PredictionDao.kt
 │   └── repository/
 │       ├── RecordingRepository.kt
 │       ├── BatteryRepository.kt
 │       ├── SettingsRepository.kt
-│       └── AnalysisRepository.kt
+│       ├── AnalysisRepository.kt     # Extended with saveFullAnalysis
+│       ├── InsightsRepository.kt     # Activities, insights, topics, links, predictions
+│       └── PeopleRepository.kt      # Voice profiles, speaker segments
 ├── service/
-│   ├── RecordingService.kt        # Core foreground service
-│   ├── CallStateReceiver.kt       # Phone call detection
-│   ├── BootReceiver.kt            # Auto-start on reboot
-│   └── BatteryWorker.kt           # Periodic battery logging
+│   ├── RecordingService.kt           # Core foreground service
+│   ├── CallStateReceiver.kt          # Phone call detection
+│   ├── BootReceiver.kt               # Auto-start on reboot
+│   └── BatteryWorker.kt              # Periodic battery logging
 ├── ai/
-│   ├── AnalysisPipeline.kt        # decode → transcribe → sentiment → keywords
-│   ├── AnalysisWorker.kt          # WorkManager worker, battery guard, progress
-│   ├── AnalysisState.kt           # AnalysisStateHolder + AnalysisUiState (StateFlow)
-│   ├── AudioDecoder.kt            # M4A → PCM float array (MediaCodec)
-│   ├── ModelManager.kt            # Model download, caching, path resolution
+│   ├── AnalysisPipeline.kt           # decode → STT → rich analysis (Claude/fallback)
+│   ├── AnalysisWorker.kt             # WorkManager worker + linking + insights + predictions
+│   ├── AnalysisState.kt              # AnalysisStateHolder + AnalysisUiState (StateFlow)
+│   ├── AudioDecoder.kt               # M4A → PCM float array (MediaCodec)
+│   ├── ModelManager.kt               # Model download, caching, path resolution
+│   ├── SpeechModelCatalog.kt         # Available WhisperKit model definitions
+│   ├── ModelDownloadState.kt         # Download progress tracking
+│   ├── BridgeStatus.kt               # BridgeStatusHolder + BridgeUiState
+│   ├── InsightGenerator.kt           # Daily insight aggregation (Claude + local)
+│   ├── ConversationLinker.kt         # Cross-chunk conversation linking
+│   ├── PredictionEngine.kt           # Pattern-based predictions
 │   ├── stt/
-│   │   └── VoskTranscriber.kt     # Vosk speech-to-text (Indian English)
+│   │   └── WhisperKitTranscriber.kt  # WhisperKit on-device STT
 │   └── nlp/
-│       ├── SentimentAnalyzer.kt   # MobileBERT TFLite (positive/negative/neutral)
-│       └── KeywordExtractor.kt    # Rule-based + TF-IDF, JSON output
+│       ├── ClaudeCodeAnalyzer.kt     # HTTP client to Claude Bridge
+│       ├── KeywordExtractor.kt       # Rule-based extraction (fallback)
+│       └── TranscriptPostProcessor.kt # Transcript cleanup (fallback)
 ├── feature/
 │   ├── permission/
-│   │   └── PermissionScreen.kt    # Runtime permission flow + battery opt dialog
+│   │   └── PermissionScreen.kt       # Runtime permission flow
 │   ├── home/
 │   │   ├── HomeScreen.kt
 │   │   └── HomeViewModel.kt
@@ -100,18 +126,41 @@ com.dc.murmur/
 │   │   ├── RecordingsScreen.kt
 │   │   ├── RecordingsViewModel.kt
 │   │   └── AudioPlayer.kt
+│   ├── transcriptions/
+│   │   ├── TranscriptionsScreen.kt
+│   │   └── TranscriptionsViewModel.kt
+│   ├── insights/
+│   │   ├── InsightsScreen.kt         # Daily/Weekly/Transcripts tabs
+│   │   └── InsightsViewModel.kt
+│   ├── people/
+│   │   ├── PeopleScreen.kt           # Voice profiles list + detail
+│   │   └── PeopleViewModel.kt
 │   └── stats/
-│       ├── StatsScreen.kt
+│       ├── StatsScreen.kt            # Stats + settings + trends
 │       └── StatsViewModel.kt
 ├── navigation/
-│   └── NavGraph.kt
+│   └── NavGraph.kt                   # 5-tab navigation
 ├── di/
-│   └── AppModule.kt              # All Koin modules (database/util/ai/repository/viewModel)
+│   └── AppModule.kt                  # All Koin modules
 └── ui/
     ├── components/
-    │   ├── TranscriptionCard.kt   # Transcript + sentiment + keyword chips
-    │   └── AnalyzeButton.kt       # Triggers AnalysisWorker with progress state
-    └── theme/                     # Material 3 theme
+    │   ├── TranscriptionCard.kt      # Transcript + sentiment + keywords
+    │   ├── TranscriptionCardV2.kt    # Enhanced with activity/topics/tags
+    │   ├── AnalyzeButton.kt          # AnalysisWorker trigger with progress
+    │   ├── TimelineBlock.kt          # Activity timeline card
+    │   ├── ActivityBreakdownChart.kt  # Stacked bar chart
+    │   ├── ActivityTrendChart.kt      # 7-day stacked columns
+    │   ├── SentimentTrendChart.kt     # 30-day line chart
+    │   ├── InsightCard.kt            # Rich analysis insight card
+    │   ├── PredictionCard.kt         # Prediction display with dismiss
+    │   ├── PersonCard.kt             # Voice profile card
+    │   └── VoiceTagDialog.kt         # Voice naming dialog
+    └── theme/
+        └── Color.kt                  # M3 theme + activity/prediction colors
+
+claude-bridge/                        # Separate Kotlin module
+└── src/main/kotlin/com/dc/murmur/bridge/
+    └── Main.kt                       # Ktor server wrapping Claude CLI
 ```
 
 ## Storage Layout (on device)
@@ -130,12 +179,16 @@ Documents/Murmur/
     └── sessions.json
 ```
 
-## Screens
+## Screens (5 tabs)
 
-1. **Home** — Recording toggle (FAB), live timer, waveform animation, today's stats (chunks/duration/storage), recent activity list, battery chart
+1. **Home** — Recording toggle (FAB), live timer, waveform animation, today's stats, recent activity, battery chart
 2. **Recordings** — Browse by date, search, inline playback, interruption badges
-3. **Stats** — Battery drain chart, weekly hours chart, storage ring, settings
-4. **Settings** — Analysis scheduler (fixed time / on charging / manual), recording config, storage management
+3. **Insights** — Full intelligence dashboard with 3 sub-tabs:
+   - **Daily**: Date navigation, insight highlight, activity breakdown chart, timeline blocks, predictions
+   - **Weekly**: Weekly insights list with top topics
+   - **Transcripts**: Searchable transcription list with rich analysis cards
+4. **People** — Voice profiles with tag/untag, interaction history, role/emotional state badges, detail view with stats
+5. **Stats** — Battery chart, activity trends (7-day), sentiment trends (30-day), top people/topics, storage, settings (analysis scheduler, recording config, Claude Bridge controls)
 
 ## Build & Deploy
 

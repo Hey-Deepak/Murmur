@@ -105,30 +105,70 @@ Notification: "Your daily insights are ready 🎯"
 
 ### Phase 2 Tasks
 
-- [ ] `ai/stt/WhisperTranscriber.kt` — Whisper-tiny TFLite, batch processing
-- [x] `ai/stt/VoskTranscriber.kt` — Vosk live STT, PCM decoding, model initialization
-- [x] `ai/nlp/SentimentAnalyzer.kt` — MobileBERT TFLite sentiment (positive/negative/neutral + score)
+- [x] `ai/stt/WhisperKitTranscriber.kt` — WhisperKit on-device STT, batch processing
+- [x] `ai/nlp/ClaudeCodeAnalyzer.kt` — HTTP client to Claude Bridge (/analyze, /cleanup, /link, /predict, /daily-insight)
 - [x] `ai/nlp/KeywordExtractor.kt` — Rule-based: names, food, times, action items, TF-IDF, JSON output
-- [ ] `ai/summary/DailySummaryGenerator.kt` — Template engine for daily summaries
-- [x] `ai/AnalysisWorker.kt` — WorkManager one-shot worker, battery check, progress state, model lifecycle
-- [x] `ai/AnalysisPipeline.kt` — Orchestrates decode → transcribe → sentiment → keywords flow
+- [x] `ai/nlp/TranscriptPostProcessor.kt` — Transcript cleanup fallback when bridge unavailable
+- [x] `ai/AnalysisWorker.kt` — WorkManager worker, battery check, progress, conversation linking, insights, predictions
+- [x] `ai/AnalysisPipeline.kt` — Orchestrates decode → STT → rich analysis with Claude/fallback
 - [x] `ai/AnalysisState.kt` — AnalysisStateHolder + AnalysisUiState + AnalysisStatus enum (StateFlow)
-- [x] `ai/AudioDecoder.kt` — M4A → PCM conversion for Vosk input
-- [x] `ai/ModelManager.kt` — Vosk + sentiment model download, caching, path resolution
-- [ ] `ai/patterns/PatternDetector.kt` — 7-day pattern analysis, routine detection
-- [x] `data/local/entity/TranscriptionEntity.kt` — chunkId, text, sentiment, sentimentScore, keywords, processedAt, modelUsed
-- [x] `data/local/dao/TranscriptionDao.kt` — insert, getRecent, getAll, deleteAll
-- [x] `data/repository/AnalysisRepository.kt` — saveTranscription, getRecentTranscriptions, clearAll
+- [x] `ai/AudioDecoder.kt` — M4A → PCM conversion (MediaCodec)
+- [x] `ai/ModelManager.kt` — WhisperKit + sentiment model download, caching, path resolution
+- [x] `ai/SpeechModelCatalog.kt` — Available model definitions (tiny, base, small)
+- [x] `data/local/entity/TranscriptionEntity.kt` — Full schema with rich analysis fields
+- [x] `data/local/dao/TranscriptionDao.kt` — insert, getRecent, getAll, deleteAll, with rich field projections
+- [x] `data/repository/AnalysisRepository.kt` — saveTranscription, saveFullAnalysis (activities/speakers/topics)
 - [x] `ui/components/TranscriptionCard.kt` — Compose card showing transcription text + sentiment + keywords
 - [x] `ui/components/AnalyzeButton.kt` — Compose button that triggers AnalysisWorker with progress state
-- [ ] `feature/insights/InsightsScreen.kt` — Daily summary, mood timeline, keyword cloud, predictions
-- [ ] Room migration v1 → v2 (TranscriptionEntity included in v1 already; no migration needed)
+- [x] Claude Bridge server (`claude-bridge/` module) — Ktor server wrapping Claude CLI
+- [x] `core/util/TermuxBridgeManager.kt` — Termux integration for starting/stopping bridge
+
+---
+
+## Phase 3: Life Intelligence System (6 sub-phases)
+
+### Phase 3.1: Data Foundation
+- [x] 8 new Room entities: ActivityEntity, VoiceProfileEntity, SpeakerSegmentEntity, TopicEntity, ChunkTopicEntity, ConversationLinkEntity, DailyInsightEntity, PredictionEntity
+- [x] 7 new DAOs with rich queries
+- [x] Room MIGRATION_2_3 (full SQL for all tables/indices)
+- [x] TranscriptionEntity extended with 6 new columns (activityType, speakerCount, topicsSummary, behavioralTags, keyMoment, analysisVersion)
+- [x] InsightsRepository, PeopleRepository
+
+### Phase 3.2: Claude Bridge + Pipeline Enhancements
+- [x] Rich analysis prompt (JSON structured output: activity, speakers, topics, behavioral tags)
+- [x] New bridge endpoints: /link, /predict, /daily-insight
+- [x] AnalysisPipeline.processChunk → rich analysis with SpeakerResult, TopicResult
+- [x] ClaudeCodeAnalyzer.analyzeRich() with structured JSON parsing
+- [x] AnalysisRepository.saveFullAnalysis() (activities, speakers, topics, chunk-topics)
+
+### Phase 3.3: Insights Screen
+- [x] InsightGenerator (Claude + local aggregation fallback)
+- [x] InsightsViewModel (daily/weekly/transcripts views, date navigation)
+- [x] InsightsScreen (3-tab view: Daily, Weekly, Transcripts)
+- [x] TimelineBlock, ActivityBreakdownChart, InsightCard, PredictionCard components
+
+### Phase 3.4: People/Voice Profiles Screen
+- [x] PeopleViewModel (tagged/untagged profiles, detail view)
+- [x] PeopleScreen (list + detail views with interaction history)
+- [x] PersonCard, VoiceTagDialog components
+- [x] 5th navigation tab (People)
+
+### Phase 3.5: Linked Conversations + Predictions
+- [x] ConversationLinker (Claude /link + heuristic fallback)
+- [x] PredictionEngine (Claude /predict + heuristic fallback)
+- [x] Prediction notifications via NotificationUtil
+- [x] AnalysisWorker post-processing: linking → daily insight → predictions
+
+### Phase 3.6: Stats Enhancements
+- [x] ActivityTrendChart (7-day stacked columns)
+- [x] SentimentTrendChart (30-day line chart)
+- [x] Top People / Top Topics cards on Stats screen
+- [x] StatsViewModel with trend data from InsightsRepository + PeopleRepository
 
 ### Performance Budget (782G)
 
 - Full day (64 chunks × 15 min) transcription: ~48 minutes
-- Sentiment for all 64 transcripts: ~13 seconds
-- Keyword extraction: ~5 seconds
-- Summary generation: instant
-- **Total analysis time: ~50 minutes**
+- Rich analysis (Claude Bridge): ~5 minutes
+- Conversation linking + insights + predictions: ~3 minutes
+- **Total analysis time: ~55 minutes**
 - Battery cost during analysis: ~5-8%

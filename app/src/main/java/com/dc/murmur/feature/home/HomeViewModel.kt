@@ -45,6 +45,8 @@ class HomeViewModel(
 
     val analysisUiState: StateFlow<AnalysisUiState> = analysisState.state
 
+    val analysisLog: StateFlow<List<String>> = analysisState.logEntries
+
     val unprocessedCount: StateFlow<Int> = analysisRepo.getUnprocessedCountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -74,6 +76,14 @@ class HomeViewModel(
     fun startAnalysis(context: Context) {
         analysisState.setIdle()
         AnalysisWorker.enqueueNow(context)
+    }
+
+    fun reanalyzeAll(context: Context) {
+        viewModelScope.launch {
+            analysisRepo.markAllForReanalysis()
+            analysisState.setIdle()
+            AnalysisWorker.enqueueNow(context)
+        }
     }
 
     fun cancelAnalysis(context: Context) {

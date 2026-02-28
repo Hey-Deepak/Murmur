@@ -55,14 +55,30 @@
 
 ---
 
-## Phase 2 Dependencies (Future — AI)
+## Phase 2+ Dependencies (AI & Bridge)
 
+### On-Device AI
 | Library | Version | Purpose |
 |---------|---------|---------|
-| com.alphacephei:vosk-android | 0.3.32 | Offline real-time STT |
-| org.tensorflow:tensorflow-lite | 2.14.0 | TFLite runtime for Whisper |
-| org.tensorflow:tensorflow-lite-support | 0.4.4 | TFLite model loading utils |
+| com.whisperkit:whisperkit-android | (bundled) | On-device WhisperKit STT |
+| org.tensorflow:tensorflow-lite | 2.14.0 | TFLite runtime |
+| org.tensorflow:tensorflow-lite-support | 0.4.4 | TFLite model loading |
 | org.tensorflow:tensorflow-lite-task-text | 0.4.4 | MobileBERT sentiment |
+
+### Claude Bridge (claude-bridge module)
+| Library | Version | Purpose |
+|---------|---------|---------|
+| io.ktor:ktor-server-core | 2.3.7 | HTTP server framework |
+| io.ktor:ktor-server-netty | 2.3.7 | Netty engine |
+| io.ktor:ktor-server-content-negotiation | 2.3.7 | Content negotiation |
+| io.ktor:ktor-serialization-kotlinx-json | 2.3.7 | JSON serialization |
+
+### Network (App → Bridge)
+| Library | Version | Purpose |
+|---------|---------|---------|
+| io.ktor:ktor-client-android | 2.3.7 | HTTP client for bridge calls |
+| io.ktor:ktor-client-content-negotiation | 2.3.7 | Client content negotiation |
+| org.jetbrains.kotlinx:kotlinx-serialization-json | 1.6.2 | JSON parsing |
 
 ---
 
