@@ -28,7 +28,7 @@ class WhisperKitTranscriber(
     private var whisperKit: WhisperKit? = null
     private var closeDeferred: CompletableDeferred<String>? = null
     private val textBuffer = StringBuilder()
-    private var isDeinitialized = false
+    private var needsDeinitialize = false  // true after kit.init(), false after kit.deinitialize()
 
     private fun onTextOutput(what: Int, result: TranscriptionResult) {
         when (what) {
@@ -64,7 +64,6 @@ class WhisperKitTranscriber(
 
     override suspend fun initialize(modelDir: File) = withContext(Dispatchers.IO) {
         if (whisperKit != null) return@withContext
-        isDeinitialized = false
 
         Log.w(TAG, "Building WhisperKit with variant: $whisperKitVariant")
 
@@ -94,8 +93,8 @@ class WhisperKitTranscriber(
         closeDeferred = CompletableDeferred()
 
         // Init audio pipeline for this transcription
-        isDeinitialized = false
         kit.init(frequency = sampleRate, channels = 1, duration = 0)
+        needsDeinitialize = true
         Log.w(TAG, "Streaming init done, feeding audio...")
 
         // Feed audio in chunks
@@ -120,7 +119,7 @@ class WhisperKitTranscriber(
 
         // Flush final results
         kit.deinitialize()
-        isDeinitialized = true
+        needsDeinitialize = false
         Log.w(TAG, "Deinitialize done, waiting for MSG_CLOSE (timeout 10s)...")
 
         // Wait for MSG_CLOSE callback with timeout — deinitialize() doesn't always trigger it
@@ -143,15 +142,15 @@ class WhisperKitTranscriber(
     }
 
     override fun close() {
-        if (!isDeinitialized) {
+        if (needsDeinitialize) {
             try {
                 whisperKit?.deinitialize()
             } catch (e: Exception) {
                 Log.w(TAG, "Error during WhisperKit cleanup", e)
             }
+            needsDeinitialize = false
         }
         whisperKit = null
         closeDeferred = null
-        isDeinitialized = false
     }
 }
