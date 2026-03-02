@@ -14,6 +14,9 @@ import com.dc.murmur.data.repository.AnalysisRepository
 import com.dc.murmur.data.repository.InsightsRepository
 import com.dc.murmur.data.repository.PeopleRepository
 import com.dc.murmur.data.repository.SettingsRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -111,6 +114,7 @@ class AnalysisWorker(
                 if (isStopped) {
                     analysisState.addLog("Cancelled by user")
                     analysisState.setIdle()
+                    withContext(NonCancellable) { pipeline.close() }
                     return Result.failure()
                 }
 
@@ -119,6 +123,7 @@ class AnalysisWorker(
                 if (currentBattery in 0..9) {
                     analysisState.addLog("Battery dropped to $currentBattery%, pausing")
                     analysisState.setError("Battery dropped to $currentBattery%, pausing analysis")
+                    withContext(NonCancellable) { pipeline.close() }
                     notificationUtil.cancelAnalysis()
                     return Result.retry()
                 }
@@ -128,50 +133,67 @@ class AnalysisWorker(
                 notificationUtil.showAnalysisProgress(processed, total)
 
                 try {
-                    Log.w(TAG, "Processing chunk ${chunk.id}: ${chunk.filePath}")
-                    val result = pipeline.processChunk(chunk.id, chunk.filePath)
-                    Log.w(TAG, "Chunk ${chunk.id} done, saving analysis")
-                    if (result.activityType != null || result.speakers.isNotEmpty() || result.topics.isNotEmpty()) {
-                        analysisRepo.saveFullAnalysis(
-                            result = result,
-                            chunkDate = chunk.date,
-                            chunkStartTime = chunk.startTime,
-                            chunkDurationMs = chunk.durationMs
-                        )
-
-                        // Find conversation links for this chunk
-                        try {
-                            val port = settingsRepo.getClaudeBridgePort()
-                            val links = conversationLinker.findLinks(
-                                chunkId = chunk.id,
+                    // NonCancellable ensures native operations (WhisperKit, sherpa-onnx)
+                    // complete before the coroutine can be cancelled. Native code cannot
+                    // be safely interrupted — freeing resources mid-call causes SIGSEGV.
+                    withContext(NonCancellable) {
+                        Log.w(TAG, "Processing chunk ${chunk.id}: ${chunk.filePath}")
+                        val result = pipeline.processChunk(chunk.id, chunk.filePath)
+                        Log.w(TAG, "Chunk ${chunk.id} done, saving analysis")
+                        if (result.activityType != null || result.speakers.isNotEmpty() || result.topics.isNotEmpty()) {
+                            analysisRepo.saveFullAnalysis(
+                                result = result,
                                 chunkDate = chunk.date,
                                 chunkStartTime = chunk.startTime,
-                                chunkText = result.text,
-                                chunkTopics = result.topics.map { it.name },
-                                chunkSpeakers = result.speakers.map { it.label },
-                                chunkActivity = result.activityType,
-                                bridgeBaseUrl = "http://127.0.0.1:$port"
+                                chunkDurationMs = chunk.durationMs
                             )
-                            if (links.isNotEmpty()) {
-                                insightsRepo.saveLinks(links)
-                                analysisState.addLog("Found ${links.size} conversation links")
+
+                            // Find conversation links for this chunk
+                            try {
+                                val port = settingsRepo.getClaudeBridgePort()
+                                val links = conversationLinker.findLinks(
+                                    chunkId = chunk.id,
+                                    chunkDate = chunk.date,
+                                    chunkStartTime = chunk.startTime,
+                                    chunkText = result.text,
+                                    chunkTopics = result.topics.map { it.name },
+                                    chunkSpeakers = result.speakers.map { it.label },
+                                    chunkActivity = result.activityType,
+                                    bridgeBaseUrl = "http://127.0.0.1:$port"
+                                )
+                                if (links.isNotEmpty()) {
+                                    insightsRepo.saveLinks(links)
+                                    analysisState.addLog("Found ${links.size} conversation links")
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Linking failed for chunk ${chunk.id}: ${e.message}")
                             }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Linking failed for chunk ${chunk.id}: ${e.message}")
+                        } else {
+                            analysisRepo.saveTranscription(result)
                         }
-                    } else {
-                        analysisRepo.saveTranscription(result)
                     }
+                } catch (e: CancellationException) {
+                    // Worker cancelled — break out, clean up safely below
+                    analysisState.addLog("Cancelled during chunk ${chunk.id}")
+                    break
                 } catch (e: Exception) {
                     Log.e(TAG, "ERROR on chunk ${chunk.id}: ${e.message}", e)
                     analysisState.addLog("ERROR on chunk ${chunk.id}: ${e.message}")
                     // Skip this chunk but continue with others
                     // Mark as processed to avoid infinite retry loops
-                    chunkDao.markProcessed(chunk.id)
+                    withContext(NonCancellable) { chunkDao.markProcessed(chunk.id) }
                 }
             }
 
-            pipeline.close()
+            withContext(NonCancellable) { pipeline.close() }
+
+            // If cancelled, exit before post-processing
+            if (isStopped) {
+                notificationUtil.cancelAnalysis()
+                analysisState.setIdle()
+                return Result.failure()
+            }
+
             notificationUtil.cancelAnalysis()
 
             // Post-processing: conversation links, daily insight, predictions
@@ -203,10 +225,17 @@ class AnalysisWorker(
             analysisState.setCompleted()
 
             return Result.success()
+        } catch (e: CancellationException) {
+            Log.w(TAG, "AnalysisWorker cancelled")
+            analysisState.addLog("Analysis cancelled")
+            withContext(NonCancellable) { pipeline.close() }
+            notificationUtil.cancelAnalysis()
+            analysisState.setIdle()
+            return Result.failure()
         } catch (e: Exception) {
             Log.e(TAG, "FATAL: ${e.message}", e)
             analysisState.addLog("FATAL: ${e.message}")
-            pipeline.close()
+            withContext(NonCancellable) { pipeline.close() }
             notificationUtil.cancelAnalysis()
             analysisState.setError(e.message ?: "Analysis failed")
             return Result.failure()
