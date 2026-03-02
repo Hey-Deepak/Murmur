@@ -72,6 +72,7 @@ class AnalysisWorker(
             }
 
             // Initialize diarization models (download if needed)
+            val initStart = System.currentTimeMillis()
             analysisState.setDownloading()
             if (!diarizationModelManager.areModelsReady()) {
                 analysisState.addLog("Downloading speaker diarization models...")
@@ -86,7 +87,7 @@ class AnalysisWorker(
                 }
             }
 
-            // Initialize diarizer (will skip if models not ready)
+            // Initialize diarizer — skips if already initialized (singleton stays warm)
             try {
                 speakerDiarizer.initialize()
                 if (speakerDiarizer.isInitialized) {
@@ -99,12 +100,11 @@ class AnalysisWorker(
                 analysisState.addLog("Speaker diarizer failed: ${e.message}")
             }
 
-            // Initialize pipeline (STT models)
+            // Initialize pipeline — skips model reload if already warm (singleton)
             analysisState.addLog("Initializing pipeline...")
-            pipeline.initialize { progress ->
-                // Update download progress in state (on main flow)
-            }
-            analysisState.addLog("Pipeline ready")
+            pipeline.initialize { progress -> }
+            val initMs = System.currentTimeMillis() - initStart
+            analysisState.addLog("Pipeline ready (init took ${initMs}ms)")
 
             val total = chunks.size
             var processed = 0
@@ -114,7 +114,7 @@ class AnalysisWorker(
                 if (isStopped) {
                     analysisState.addLog("Cancelled by user")
                     analysisState.setIdle()
-                    withContext(NonCancellable) { pipeline.close() }
+                    // Don't close pipeline — keep models warm for next run
                     return Result.failure()
                 }
 
@@ -123,8 +123,8 @@ class AnalysisWorker(
                 if (currentBattery in 0..9) {
                     analysisState.addLog("Battery dropped to $currentBattery%, pausing")
                     analysisState.setError("Battery dropped to $currentBattery%, pausing analysis")
-                    withContext(NonCancellable) { pipeline.close() }
                     notificationUtil.cancelAnalysis()
+                    // Don't close pipeline — will retry soon
                     return Result.retry()
                 }
 
@@ -137,9 +137,12 @@ class AnalysisWorker(
                     // complete before the coroutine can be cancelled. Native code cannot
                     // be safely interrupted — freeing resources mid-call causes SIGSEGV.
                     withContext(NonCancellable) {
+                        val chunkStart = System.currentTimeMillis()
                         Log.w(TAG, "Processing chunk ${chunk.id}: ${chunk.filePath}")
                         val result = pipeline.processChunk(chunk.id, chunk.filePath)
-                        Log.w(TAG, "Chunk ${chunk.id} done, saving analysis")
+                        val chunkMs = System.currentTimeMillis() - chunkStart
+                        Log.w(TAG, "Chunk ${chunk.id} done in ${chunkMs}ms, saving analysis")
+                        analysisState.addLog("Chunk ${chunk.id} processed in ${chunkMs / 1000}s")
                         if (result.activityType != null || result.speakers.isNotEmpty() || result.topics.isNotEmpty()) {
                             analysisRepo.saveFullAnalysis(
                                 result = result,
@@ -173,7 +176,8 @@ class AnalysisWorker(
                         }
                     }
                 } catch (e: CancellationException) {
-                    // Worker cancelled — break out, clean up safely below
+                    // Worker cancelled (REPLACE policy) — don't close pipeline,
+                    // new worker will reuse the warm models immediately
                     analysisState.addLog("Cancelled during chunk ${chunk.id}")
                     break
                 } catch (e: Exception) {
@@ -185,7 +189,9 @@ class AnalysisWorker(
                 }
             }
 
-            withContext(NonCancellable) { pipeline.close() }
+            // DON'T close pipeline — keep models warm in the Koin singleton.
+            // Next worker run skips initialization entirely (~30-60s saved).
+            // Models are freed when the process dies or on fatal errors.
 
             // If cancelled, exit before post-processing
             if (isStopped) {
@@ -226,13 +232,14 @@ class AnalysisWorker(
 
             return Result.success()
         } catch (e: CancellationException) {
+            // Worker cancelled — don't close, keep models warm for replacement worker
             Log.w(TAG, "AnalysisWorker cancelled")
             analysisState.addLog("Analysis cancelled")
-            withContext(NonCancellable) { pipeline.close() }
             notificationUtil.cancelAnalysis()
             analysisState.setIdle()
             return Result.failure()
         } catch (e: Exception) {
+            // Actual error — close pipeline to start fresh next time
             Log.e(TAG, "FATAL: ${e.message}", e)
             analysisState.addLog("FATAL: ${e.message}")
             withContext(NonCancellable) { pipeline.close() }
