@@ -34,6 +34,8 @@ class AnalysisWorker(
     private val insightGenerator: InsightGenerator by inject()
     private val predictionEngine: PredictionEngine by inject()
     private val settingsRepo: SettingsRepository by inject()
+    private val diarizationModelManager: DiarizationModelManager by inject()
+    private val speakerDiarizer: SpeakerDiarizer by inject()
 
     override suspend fun doWork(): Result {
         Log.w(TAG, "AnalysisWorker started")
@@ -66,8 +68,35 @@ class AnalysisWorker(
                 return Result.success()
             }
 
-            // Initialize models
+            // Initialize diarization models (download if needed)
             analysisState.setDownloading()
+            if (!diarizationModelManager.areModelsReady()) {
+                analysisState.addLog("Downloading speaker diarization models...")
+                try {
+                    diarizationModelManager.downloadModels { model, progress ->
+                        analysisState.addLog("Downloading $model: ${(progress * 100).toInt()}%")
+                    }
+                    analysisState.addLog("Diarization models downloaded")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Diarization model download failed: ${e.message}")
+                    analysisState.addLog("Diarization models unavailable: ${e.message}")
+                }
+            }
+
+            // Initialize diarizer (will skip if models not ready)
+            try {
+                speakerDiarizer.initialize()
+                if (speakerDiarizer.isInitialized) {
+                    analysisState.addLog("Speaker diarizer ready")
+                } else {
+                    analysisState.addLog("Speaker diarizer unavailable (models not downloaded)")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Speaker diarizer init failed: ${e.message}")
+                analysisState.addLog("Speaker diarizer failed: ${e.message}")
+            }
+
+            // Initialize pipeline (STT models)
             analysisState.addLog("Initializing pipeline...")
             pipeline.initialize { progress ->
                 // Update download progress in state (on main flow)
