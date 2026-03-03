@@ -1,12 +1,17 @@
 package com.dc.murmur.ai
 
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.dc.murmur.R
+import com.dc.murmur.core.constants.AppConstants
 import com.dc.murmur.core.util.BatteryUtil
 import com.dc.murmur.core.util.NotificationUtil
 import com.dc.murmur.data.local.dao.RecordingChunkDao
@@ -40,8 +45,38 @@ class AnalysisWorker(
     private val diarizationModelManager: DiarizationModelManager by inject()
     private val speakerDiarizer: SpeakerDiarizer by inject()
 
+    override suspend fun getForegroundInfo(): ForegroundInfo = createForegroundInfo("Preparing analysis...")
+
+    private fun createForegroundInfo(text: String, progress: Int = 0, total: Int = 0): ForegroundInfo {
+        val notification = NotificationCompat.Builder(applicationContext, AppConstants.ANALYSIS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Analyzing recordings")
+            .setContentText(text)
+            .setOngoing(true)
+            .setSilent(true)
+            .apply {
+                if (total > 0) setProgress(total, progress, false)
+                else setProgress(0, 0, true)
+            }
+            .build()
+        return ForegroundInfo(
+            AppConstants.ANALYSIS_NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        )
+    }
+
     override suspend fun doWork(): Result {
         Log.w(TAG, "AnalysisWorker started")
+
+        // Promote to foreground worker — prevents Android from deferring or killing
+        // the worker during long-running native operations (WhisperKit, sherpa-onnx).
+        try {
+            setForeground(createForegroundInfo("Starting analysis..."))
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not promote to foreground: ${e.message}")
+        }
+
         analysisState.clearLog()
         pipeline.setLogCallback { analysisState.addLog(it) }
         pipeline.setStepCallback { analysisState.setStep(it) }
@@ -130,7 +165,9 @@ class AnalysisWorker(
 
                 processed++
                 analysisState.setRunning(processed, total)
-                notificationUtil.showAnalysisProgress(processed, total)
+                try {
+                    setForeground(createForegroundInfo("Processing $processed / $total", processed, total))
+                } catch (_: Exception) {}
 
                 try {
                     // NonCancellable ensures native operations (WhisperKit, sherpa-onnx)
