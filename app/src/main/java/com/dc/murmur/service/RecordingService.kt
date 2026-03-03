@@ -70,20 +70,6 @@ class RecordingService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         Log.d(TAG, "onStartCommand action=${intent?.action}")
-
-        // If started via startForegroundService but not actively recording
-        // (e.g. CallStateReceiver fires after a crash), satisfy the foreground
-        // requirement immediately and stop — PAUSE/RESUME are no-ops anyway.
-        if (!recordingRepo.isRecording.value && intent?.action != AppConstants.ACTION_START_RECORDING) {
-            startForeground(
-                AppConstants.RECORDING_NOTIFICATION_ID,
-                notificationUtil.buildRecordingNotification(0)
-            )
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return Service.START_NOT_STICKY
-        }
-
         when (intent?.action) {
             AppConstants.ACTION_START_RECORDING -> startRecordingSession()
             AppConstants.ACTION_STOP_RECORDING -> stopRecordingSession()

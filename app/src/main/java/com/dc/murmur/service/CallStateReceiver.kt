@@ -51,7 +51,10 @@ class CallStateReceiver : BroadcastReceiver() {
 
     private fun sendToService(context: Context, intent: Intent) {
         try {
-            context.startForegroundService(intent)
+            // Use startService, not startForegroundService. The recording service
+            // is already running in the foreground — this just delivers the intent.
+            // If the service isn't running, PAUSE/RESUME are no-ops anyway.
+            context.startService(intent)
         } catch (e: Exception) {
             Log.w(TAG, "Could not deliver ${intent.action} to RecordingService", e)
         }
