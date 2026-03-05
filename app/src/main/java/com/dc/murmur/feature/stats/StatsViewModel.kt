@@ -236,16 +236,24 @@ class StatsViewModel(
         viewModelScope.launch {
             bridgeStatusHolder.setStarting()
             val port = settingsRepo.getClaudeBridgePort()
-            bridgeManager.startBridge(port)
-            pollBridgeHealth(expectRunning = true)
+            val result = bridgeManager.startBridge(port)
+            when (result) {
+                TermuxBridgeManager.Result.COMMAND_SENT -> pollBridgeHealth(expectRunning = true)
+                TermuxBridgeManager.Result.TERMUX_OPENED -> pollBridgeHealth(expectRunning = true, maxAttempts = 30)
+                TermuxBridgeManager.Result.FAILED -> bridgeStatusHolder.setError("Could not reach Termux")
+            }
         }
     }
 
     fun stopBridge() {
         viewModelScope.launch {
             bridgeStatusHolder.setStopping()
-            bridgeManager.stopBridge()
-            pollBridgeHealth(expectRunning = false)
+            val result = bridgeManager.stopBridge()
+            when (result) {
+                TermuxBridgeManager.Result.COMMAND_SENT -> pollBridgeHealth(expectRunning = false)
+                TermuxBridgeManager.Result.TERMUX_OPENED -> pollBridgeHealth(expectRunning = false, maxAttempts = 30)
+                TermuxBridgeManager.Result.FAILED -> bridgeStatusHolder.setError("Could not reach Termux")
+            }
         }
     }
 
@@ -261,8 +269,8 @@ class StatsViewModel(
         settingsRepo.setClaudeBridgeAutoStart(enabled)
     }
 
-    private suspend fun pollBridgeHealth(expectRunning: Boolean) {
-        repeat(10) {
+    private suspend fun pollBridgeHealth(expectRunning: Boolean, maxAttempts: Int = 10) {
+        repeat(maxAttempts) {
             delay(1_000)
             try {
                 val available = claudeAnalyzer.isAvailable()
@@ -283,9 +291,9 @@ class StatsViewModel(
         }
         // Timeout — set based on what we expected
         if (expectRunning) {
-            bridgeStatusHolder.setError("Bridge did not start within 10s")
+            bridgeStatusHolder.setError("Bridge did not start within ${maxAttempts}s")
         } else {
-            bridgeStatusHolder.setError("Bridge did not stop within 10s")
+            bridgeStatusHolder.setError("Bridge did not stop within ${maxAttempts}s")
         }
     }
 }

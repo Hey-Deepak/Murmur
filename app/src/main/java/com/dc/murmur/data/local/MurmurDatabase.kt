@@ -45,7 +45,7 @@ import com.dc.murmur.data.local.entity.VoiceProfileEntity
         DailyInsightEntity::class,
         PredictionEntity::class
     ],
-    version = 3,
+    version = 6,
     exportSchema = false
 )
 abstract class MurmurDatabase : RoomDatabase() {
@@ -232,13 +232,34 @@ abstract class MurmurDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE voice_profiles ADD COLUMN embedding TEXT DEFAULT NULL")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_voice_profiles_voiceId ON voice_profiles(voiceId)")
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add segment timings for speaker-specific audio playback
+                db.execSQL("ALTER TABLE speaker_segments ADD COLUMN segmentTimings TEXT DEFAULT NULL")
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE voice_profiles ADD COLUMN embeddingSampleCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE voice_profiles ADD COLUMN embeddingUpdatedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun create(context: Context): MurmurDatabase {
             return Room.databaseBuilder(
                 context.applicationContext,
                 MurmurDatabase::class.java,
                 "murmur_db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
         }
     }

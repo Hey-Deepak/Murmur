@@ -11,6 +11,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.dc.murmur.core.constants.AppConstants
 import com.dc.murmur.core.util.BatteryUtil
+import com.dc.murmur.core.util.CrashLogger
 import com.dc.murmur.core.util.NotificationUtil
 import com.dc.murmur.core.util.StorageUtil
 import com.dc.murmur.data.local.entity.BatteryLogEntity
@@ -181,6 +182,7 @@ class RecordingService : LifecycleService() {
             scheduleChunkTimer()
         } catch (e: Exception) {
             Log.e(TAG, "MediaRecorder.start() FAILED", e)
+            CrashLogger.logException(e, "RecordingService.start")
             mediaRecorder?.release()
             mediaRecorder = null
         }
@@ -234,6 +236,7 @@ class RecordingService : LifecycleService() {
             recorder.stop()
         } catch (e: Exception) {
             Log.e(TAG, "recorder.stop() threw", e)
+            CrashLogger.logException(e, "RecordingService.stop")
         }
         recorder.release()
         mediaRecorder = null
@@ -255,6 +258,7 @@ class RecordingService : LifecycleService() {
             recorder.stop()
         } catch (e: Exception) {
             Log.e(TAG, "recorder.stop() threw (sync)", e)
+            CrashLogger.logException(e, "RecordingService.stopSync")
         }
         recorder.release()
         mediaRecorder = null

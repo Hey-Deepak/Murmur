@@ -8,6 +8,7 @@ import com.dc.murmur.ai.AnalysisWorker
 import com.dc.murmur.core.constants.AppConstants
 import com.dc.murmur.data.local.dao.RecordingChunkDao
 import com.dc.murmur.data.repository.SettingsRepository
+import com.dc.murmur.core.util.CrashLogger
 import com.dc.murmur.di.appModules
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,9 @@ class MurmurApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Initialize crash logging before anything else
+        CrashLogger.initialize(this)
 
         // Start Koin DI
         startKoin {

@@ -20,11 +20,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,6 +47,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.dc.murmur.data.local.dao.SpeakerSegmentWithProfile
 import com.dc.murmur.data.local.entity.TranscriptionEntity
 import com.dc.murmur.ui.theme.ClaudePurple
 import com.dc.murmur.ui.theme.ClaudePurpleBg
@@ -68,7 +74,11 @@ import org.json.JSONObject
 @Composable
 fun TranscriptionCard(
     transcription: TranscriptionEntity,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    speakers: List<SpeakerSegmentWithProfile> = emptyList(),
+    playingProfileId: Long? = null,
+    onPlaySpeaker: (Long) -> Unit = {},
+    onTagSpeaker: (Long) -> Unit = {}
 ) {
     val summary = parseSummary(transcription.keywords)
     val tags = parseTags(transcription.keywords)
@@ -175,6 +185,7 @@ fun TranscriptionCard(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .clickable { expanded = !expanded }
                             .padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -207,9 +218,115 @@ fun TranscriptionCard(
                             text = summary,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 6,
+                            maxLines = if (expanded) Int.MAX_VALUE else 6,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+
+                // Speakers section
+                if (speakers.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.RecordVoiceOver,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Speakers",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        speakers.forEachIndexed { index, speaker ->
+                            val isPlayingThis = playingProfileId == speaker.voiceProfileId
+                            val displayName = speaker.profileLabel
+                                ?: "Speaker ${index + 1}"
+                            val durationText = formatSpeakerDuration(speaker.speakingDurationMs)
+                            val isUntagged = speaker.profileLabel == null
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                // Play button
+                                if (speaker.voiceProfileId != null) {
+                                    IconButton(
+                                        onClick = { onPlaySpeaker(speaker.voiceProfileId) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPlayingThis) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                                            contentDescription = if (isPlayingThis) "Stop" else "Play $displayName",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = if (isPlayingThis) MaterialTheme.colorScheme.error
+                                                   else MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                } else {
+                                    Spacer(Modifier.width(28.dp))
+                                }
+
+                                // Name
+                                Text(
+                                    text = displayName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                // Duration
+                                Text(
+                                    text = durationText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                // Role chip
+                                if (speaker.role != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = speaker.role,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                // Edit/tag button
+                                if (speaker.voiceProfileId != null) {
+                                    IconButton(
+                                        onClick = { onTagSpeaker(speaker.voiceProfileId) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = if (isUntagged) "Tag speaker" else "Rename speaker",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = if (isUntagged) MaterialTheme.colorScheme.primary
+                                                   else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -261,6 +378,12 @@ private fun parseSummary(json: String): String {
     } catch (e: Exception) {
         ""
     }
+}
+
+private fun formatSpeakerDuration(ms: Long): String {
+    val s = ms / 1000
+    val m = s / 60
+    return if (m > 0) "%dm %02ds".format(m, s % 60) else "%ds".format(s)
 }
 
 /** Extracts tags array from keywords JSON. Returns empty list if missing or invalid. */

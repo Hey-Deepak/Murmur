@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "voice_profiles",
-    indices = [Index("label")]
+    indices = [Index("label"), Index("voiceId")]
 )
 data class VoiceProfileEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -17,5 +17,8 @@ data class VoiceProfileEntity(
     val lastSeenAt: Long,
     val totalInteractionMs: Long = 0,
     val interactionCount: Int = 0,
-    val notes: String? = null
+    val notes: String? = null,
+    val embedding: String? = null, // base64-encoded FloatArray (speaker embedding)
+    val embeddingSampleCount: Int = 0,
+    val embeddingUpdatedAt: Long = 0
 )

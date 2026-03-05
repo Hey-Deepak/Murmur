@@ -1,6 +1,7 @@
 package com.dc.murmur.feature.stats
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -30,13 +31,18 @@ import com.patrykandpatrick.vico.compose.m3.style.m3ChartStyle
 import com.patrykandpatrick.vico.compose.style.ProvideChartStyle
 import com.patrykandpatrick.vico.core.entry.entryModelOf
 import com.dc.murmur.ui.components.ActivityTrendChart
+import com.dc.murmur.core.util.CrashLogger
 import com.dc.murmur.ui.components.AnalyzeNowCard
 import com.dc.murmur.ui.components.SentimentTrendChart
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
+fun StatsScreen(
+    onNavigateToCrashLogs: () -> Unit = {},
+    onNavigateToBenchmark: () -> Unit = {},
+    viewModel: StatsViewModel = koinViewModel()
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val totalStorage by viewModel.totalStorageBytes.collectAsState()
     val autoStartOnBoot by viewModel.autoStartOnBoot.collectAsState()
@@ -375,6 +381,80 @@ fun StatsScreen(viewModel: StatsViewModel = koinViewModel()) {
                     onPortChange = viewModel::setClaudeBridgePort,
                     onAutoStartChange = viewModel::setClaudeBridgeAutoStart
                 )
+            }
+
+            // --- Pipeline Benchmark ---
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToBenchmark() }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "Pipeline Benchmark",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Compare Kotlin vs Rust pipeline performance",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // --- Crash Logs ---
+            item {
+                val crashCount = remember { CrashLogger.getCrashCount() }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToCrashLogs() }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "Crash Logs",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "View exceptions and crashes",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (crashCount > 0) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.error
+                            ) {
+                                Text(
+                                    "$crashCount",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onError,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             item { Spacer(modifier = Modifier.height(80.dp)) }

@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import com.dc.murmur.R
 import com.dc.murmur.core.constants.AppConstants
 import com.dc.murmur.core.util.BatteryUtil
+import com.dc.murmur.core.util.CrashLogger
 import com.dc.murmur.core.util.NotificationUtil
 import com.dc.murmur.data.local.dao.RecordingChunkDao
 import com.dc.murmur.data.repository.AnalysisRepository
@@ -219,6 +220,7 @@ class AnalysisWorker(
                     break
                 } catch (e: Exception) {
                     Log.e(TAG, "ERROR on chunk ${chunk.id}: ${e.message}", e)
+                    CrashLogger.logException(e, "AnalysisWorker.chunk")
                     analysisState.addLog("ERROR on chunk ${chunk.id}: ${e.message}")
                     // Skip this chunk but continue with others
                     // Mark as processed to avoid infinite retry loops
@@ -278,6 +280,7 @@ class AnalysisWorker(
         } catch (e: Exception) {
             // Actual error — close pipeline to start fresh next time
             Log.e(TAG, "FATAL: ${e.message}", e)
+            CrashLogger.logException(e, "AnalysisWorker.fatal")
             analysisState.addLog("FATAL: ${e.message}")
             withContext(NonCancellable) { pipeline.close() }
             notificationUtil.cancelAnalysis()

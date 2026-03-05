@@ -27,11 +27,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.dc.murmur.feature.crashlogs.CrashLogsScreen
 import com.dc.murmur.feature.home.HomeScreen
 import com.dc.murmur.feature.insights.InsightsScreen
 import com.dc.murmur.feature.people.PeopleScreen
 import com.dc.murmur.feature.permission.PermissionScreen
 import com.dc.murmur.feature.recordings.RecordingsScreen
+import com.dc.murmur.feature.stats.BenchmarkScreen
 import com.dc.murmur.feature.stats.StatsScreen
 
 private sealed class Screen(val route: String, val label: String) {
@@ -41,6 +43,8 @@ private sealed class Screen(val route: String, val label: String) {
     object Insights : Screen("insights", "Insights")
     object People : Screen("people", "People")
     object Stats : Screen("stats", "Stats")
+    object CrashLogs : Screen("crash_logs", "Crash Logs")
+    object Benchmark : Screen("benchmark", "Benchmark")
 }
 
 private val bottomNavScreens = listOf(Screen.Home, Screen.Recordings, Screen.Insights, Screen.People, Screen.Stats)
@@ -58,7 +62,9 @@ fun MurmurNavGraph() {
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val showBottomBar = currentRoute != Screen.Permissions.route
+    val showBottomBar = currentRoute != Screen.Permissions.route &&
+            currentRoute != Screen.CrashLogs.route &&
+            currentRoute != Screen.Benchmark.route
 
     Scaffold(
         bottomBar = {
@@ -111,7 +117,18 @@ fun MurmurNavGraph() {
             composable(Screen.Recordings.route) { RecordingsScreen() }
             composable(Screen.Insights.route) { InsightsScreen() }
             composable(Screen.People.route) { PeopleScreen() }
-            composable(Screen.Stats.route) { StatsScreen() }
+            composable(Screen.Stats.route) {
+                StatsScreen(
+                    onNavigateToCrashLogs = { navController.navigate(Screen.CrashLogs.route) },
+                    onNavigateToBenchmark = { navController.navigate(Screen.Benchmark.route) }
+                )
+            }
+            composable(Screen.CrashLogs.route) {
+                CrashLogsScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Screen.Benchmark.route) {
+                BenchmarkScreen(onBack = { navController.popBackStack() })
+            }
         }
     }
 }
