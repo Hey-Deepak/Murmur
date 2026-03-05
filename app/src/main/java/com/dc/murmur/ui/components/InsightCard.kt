@@ -66,6 +66,7 @@ fun InsightCard(
     transcription: TranscriptionWithChunk,
     formattedTime: String,
     formattedDuration: String,
+    speakers: List<SpeakerSegmentUi> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -128,6 +129,14 @@ fun InsightCard(
                 )
             }
 
+            // Speaker diarization visualization
+            if (speakers.isNotEmpty()) {
+                SpeakerDiarizationCard(
+                    speakers = speakers,
+                    showDetails = expanded
+                )
+            }
+
             // Metadata row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -144,7 +153,8 @@ fun InsightCard(
                     Spacer(Modifier.width(3.dp))
                     Text(formattedDuration, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (transcription.speakerCount != null && transcription.speakerCount > 0) {
+                if (speakers.isEmpty() && transcription.speakerCount != null && transcription.speakerCount > 0) {
+                    // Fallback: show simple count when no segment data
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Person, null, Modifier.size(14.dp), MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(3.dp))

@@ -15,7 +15,10 @@ import java.io.BufferedReader
 import java.util.concurrent.TimeUnit
 
 @Serializable
-data class AnalyzeRequest(val text: String)
+data class AnalyzeRequest(
+    val text: String,
+    val speakerContext: String? = null
+)
 
 @Serializable
 data class AnalyzeResponse(
@@ -166,6 +169,8 @@ Rules:
 - Remove filler artifacts like repeated words or "[BLANK_AUDIO]"
 - PRESERVE hesitations, self-corrections, and filler words (um, uh, hmm) — these are important for behavioral analysis
 - Do NOT add any commentary — return ONLY the cleaned transcript text
+- Do NOT use any markdown formatting (no **bold**, no *italic*, no headers, no bullet points)
+- Return plain text only
 
 Raw transcript:
 %s
@@ -177,13 +182,15 @@ the full context of what happened during this recording segment.
 
 The speaker may use Hindi-English code-switching (Hinglish). Preserve Hindi words as-is.
 
+%s
+
 Respond in EXACTLY this JSON format (valid JSON, no markdown, no comments):
 
 {
   "sentiment": "<positive|negative|neutral|anxious|frustrated|confident|hesitant|excited>",
   "score": <0.00-1.00>,
   "tags": ["tag1", "tag2"],
-  "summary": "One paragraph behavioral analysis...",
+  "summary": "One paragraph behavioral analysis in plain text, no markdown formatting...",
   "activity": {
     "type": "<eating|meeting|working|commuting|idle|phone_call|casual_chat|solo>",
     "confidence": <0.0-1.0>,
@@ -211,7 +218,8 @@ Respond in EXACTLY this JSON format (valid JSON, no markdown, no comments):
 }
 
 Rules:
-- Detect distinct speakers from speech patterns (turn-taking, different perspectives)
+- If speaker diarization data is provided above, use it to attribute speech to the correct speakers
+- If a speaker is identified by name, use their name as the speaker label
 - Activity type inferred from context clues (food mentions = eating, multiple speakers + agenda = meeting)
 - Topics normalized to lowercase 1-3 word phrases
 - Behavioral tags describe HOW the person speaks, not WHAT they say
@@ -325,7 +333,7 @@ fun main(args: Array<String>) {
                     return@post
                 }
 
-                val prompt = CLEANUP_PROMPT_TEMPLATE.format(request.text.take(4000))
+                val prompt = CLEANUP_PROMPT_TEMPLATE.format(request.text.take(6000))
 
                 val rawOutput = try {
                     runClaude(prompt)
@@ -360,7 +368,12 @@ fun main(args: Array<String>) {
                     return@post
                 }
 
-                val prompt = RICH_ANALYZE_PROMPT_TEMPLATE.format(request.text.take(4000))
+                val speakerSection = if (!request.speakerContext.isNullOrBlank()) {
+                    request.speakerContext
+                } else {
+                    ""
+                }
+                val prompt = RICH_ANALYZE_PROMPT_TEMPLATE.format(speakerSection, request.text.take(6000))
 
                 val rawOutput = try {
                     runClaude(prompt)
@@ -560,20 +573,37 @@ private fun tryParseRich(raw: String): RichAnalyzeResponse? {
 
 private fun runClaude(prompt: String): String? {
     val claudePath = findClaudeBinary() ?: error("claude binary not found in PATH")
+    System.err.println("[Bridge] Using claude binary: $claudePath")
 
-    val process = ProcessBuilder(claudePath, "-p", "--")
+    val pb = ProcessBuilder(claudePath, "-p", prompt)
         .redirectErrorStream(true)
-        .start()
+    // Remove Claude Code env vars that prevent nested invocation
+    pb.environment().remove("CLAUDECODE")
+    pb.environment().remove("CLAUDE_CODE_SSE_PORT")
+    pb.environment().remove("CLAUDE_CODE_ENTRYPOINT")
+    System.err.println("[Bridge] Starting claude process...")
+    val process = pb.start()
 
-    // Write prompt via stdin to avoid argument-length limits and stdin-hang issues
-    process.outputStream.bufferedWriter().use { it.write(prompt) }
+    // Close stdin immediately since we pass prompt as argument
+    process.outputStream.close()
 
-    val output = process.inputStream.bufferedReader().use(BufferedReader::readText)
+    // Read output in a separate thread to avoid deadlock
+    val outputFuture = java.util.concurrent.CompletableFuture.supplyAsync {
+        process.inputStream.bufferedReader().use(BufferedReader::readText)
+    }
+
     val finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
     if (!finished) {
         process.destroyForcibly()
         error("claude timed out after ${TIMEOUT_SECONDS}s")
+    }
+
+    val output = try {
+        outputFuture.get(5, TimeUnit.SECONDS)
+    } catch (e: Exception) {
+        process.destroyForcibly()
+        error("Failed to read claude output: ${e.message}")
     }
 
     if (process.exitValue() != 0) {
@@ -585,14 +615,19 @@ private fun runClaude(prompt: String): String? {
 }
 
 private fun findClaudeBinary(): String? {
-    // Check common Termux paths
+    // Check common paths: macOS/Linux, Termux
+    val homeDir = System.getProperty("user.home") ?: ""
     val candidates = listOf(
+        "$homeDir/.local/bin/claude",
+        "$homeDir/.npm-global/bin/claude",
+        "/usr/local/bin/claude",
+        "/usr/bin/claude",
+        "/opt/homebrew/bin/claude",
+        // Termux paths
         "/data/data/com.termux/files/usr/bin/claude",
         "/data/data/com.termux/files/home/.npm-global/bin/claude",
         "/data/data/com.termux/files/home/node_modules/.bin/claude",
-        "/data/data/com.termux/files/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude",
-        "/usr/local/bin/claude",
-        "/usr/bin/claude"
+        "/data/data/com.termux/files/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude"
     )
 
     for (path in candidates) {

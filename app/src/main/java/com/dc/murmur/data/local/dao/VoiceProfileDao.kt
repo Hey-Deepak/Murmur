@@ -41,6 +41,18 @@ interface VoiceProfileDao {
     @Query("UPDATE voice_profiles SET totalInteractionMs = totalInteractionMs + :addMs, interactionCount = interactionCount + 1, lastSeenAt = :lastSeen WHERE id = :id")
     suspend fun incrementInteraction(id: Long, addMs: Long, lastSeen: Long)
 
+    @Query("UPDATE voice_profiles SET embedding = :embedding WHERE id = :id")
+    suspend fun setEmbedding(id: Long, embedding: String)
+
+    @Query("UPDATE voice_profiles SET embedding = :embedding, embeddingSampleCount = :sampleCount, embeddingUpdatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateEmbedding(id: Long, embedding: String, sampleCount: Int, updatedAt: Long)
+
+    @Query("SELECT * FROM voice_profiles WHERE embedding IS NOT NULL")
+    suspend fun getWithEmbeddings(): List<VoiceProfileEntity>
+
+    @Query("SELECT * FROM voice_profiles WHERE embedding IS NOT NULL AND label IS NULL")
+    suspend fun getUntaggedWithEmbeddings(): List<VoiceProfileEntity>
+
     @Query("DELETE FROM voice_profiles WHERE id = :id")
     suspend fun deleteById(id: Long)
 }

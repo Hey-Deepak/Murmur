@@ -90,6 +90,11 @@ dependencies {
     implementation(libs.qnn.runtime)
     implementation(libs.qnn.litert.delegate)
 
+    // Sherpa-ONNX (speaker diarization + embedding extraction)
+    // Download AAR from: https://github.com/k2-fsa/sherpa-onnx/releases
+    // Place sherpa-onnx-<version>.aar in app/libs/ and rename to sherpa-onnx.aar
+    implementation(files("libs/sherpa-onnx.aar"))
+
     // Test
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

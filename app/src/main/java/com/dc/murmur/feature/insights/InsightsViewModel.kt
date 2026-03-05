@@ -13,6 +13,7 @@ import com.dc.murmur.data.repository.AnalysisRepository
 import com.dc.murmur.data.repository.InsightsRepository
 import com.dc.murmur.data.repository.PeopleRepository
 import com.dc.murmur.data.repository.RecordingRepository
+import com.dc.murmur.ui.components.SpeakerSegmentUi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -85,6 +86,10 @@ class InsightsViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Speaker segments per chunk, loaded on demand
+    private val _chunkSpeakers = MutableStateFlow<Map<Long, List<SpeakerSegmentUi>>>(emptyMap())
+    val chunkSpeakers: StateFlow<Map<Long, List<SpeakerSegmentUi>>> = _chunkSpeakers.asStateFlow()
+
     init {
         loadTimeBreakdown()
     }
@@ -130,6 +135,34 @@ class InsightsViewModel(
             cal.add(Calendar.DAY_OF_YEAR, -7)
             val startDate = dateFormat.format(cal.time)
             _weeklyTimeBreakdown.value = insightsRepo.getTimeBreakdownRange(startDate, endDate)
+        }
+    }
+
+    fun loadSpeakersForChunks(chunkIds: List<Long>) {
+        viewModelScope.launch {
+            val newEntries = mutableMapOf<Long, List<SpeakerSegmentUi>>()
+            val currentMap = _chunkSpeakers.value
+            for (chunkId in chunkIds) {
+                if (currentMap.containsKey(chunkId)) continue
+                val segments = peopleRepo.getSpeakerSegmentsWithProfile(chunkId)
+                if (segments.isNotEmpty()) {
+                    val totalMs = segments.sumOf { it.speakingDurationMs }.coerceAtLeast(1)
+                    newEntries[chunkId] = segments.map { seg ->
+                        SpeakerSegmentUi(
+                            label = seg.profileLabel ?: seg.speakerLabel,
+                            ratio = seg.speakingDurationMs.toFloat() / totalMs,
+                            durationMs = seg.speakingDurationMs,
+                            turnCount = seg.turnCount,
+                            role = seg.role,
+                            emotionalState = seg.emotionalState,
+                            isIdentified = seg.profileLabel != null
+                        )
+                    }
+                }
+            }
+            if (newEntries.isNotEmpty()) {
+                _chunkSpeakers.value = currentMap + newEntries
+            }
         }
     }
 

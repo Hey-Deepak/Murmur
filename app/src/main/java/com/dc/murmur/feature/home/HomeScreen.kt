@@ -27,13 +27,16 @@ import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -43,6 +46,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dc.murmur.ui.components.AnalyzeNowCard
 import com.dc.murmur.ui.components.TranscriptionCard
+import com.dc.murmur.ui.components.VoiceTagDialog
 import com.dc.murmur.ui.theme.DarkSurfaceCard
 import com.dc.murmur.ui.theme.GradientRecording
 import com.dc.murmur.ui.theme.GradientRecordingEnd
@@ -74,6 +81,49 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
     val analysisLog by viewModel.analysisLog.collectAsState()
     val unprocessedCount by viewModel.unprocessedCount.collectAsState()
     val recentTranscriptions by viewModel.recentTranscriptions.collectAsState()
+    val chunkSpeakers by viewModel.chunkSpeakers.collectAsState()
+    val playingProfileId by viewModel.playingProfileId.collectAsState()
+    val isPlaying by viewModel.audioPlayer.isPlaying.collectAsState()
+    val taggedProfileNames by viewModel.taggedProfileNames.collectAsState()
+    var showResetDialog by remember { mutableStateOf(false) }
+    var showTagDialog by remember { mutableStateOf(false) }
+    var tagDialogProfileId by remember { mutableStateOf<Long?>(null) }
+    var tagDialogCurrentLabel by remember { mutableStateOf<String?>(null) }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Reset All Data") },
+            text = { Text("This will delete all recordings, transcriptions, voice profiles, insights, and audio files. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.resetAllData(context)
+                    showResetDialog = false
+                }) { Text("Delete Everything", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showTagDialog && tagDialogProfileId != null) {
+        VoiceTagDialog(
+            currentLabel = tagDialogCurrentLabel,
+            onConfirm = { name ->
+                viewModel.tagSpeaker(tagDialogProfileId!!, name)
+                showTagDialog = false
+                tagDialogProfileId = null
+                tagDialogCurrentLabel = null
+            },
+            onDismiss = {
+                showTagDialog = false
+                tagDialogProfileId = null
+                tagDialogCurrentLabel = null
+            },
+            suggestions = taggedProfileNames
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -83,6 +133,15 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
                         "Murmur",
                         style = MaterialTheme.typography.headlineMedium
                     )
+                },
+                actions = {
+                    IconButton(onClick = { showResetDialog = true }) {
+                        Icon(
+                            Icons.Default.DeleteForever,
+                            contentDescription = "Reset all data",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -178,7 +237,20 @@ fun HomeScreen(viewModel: HomeViewModel = koinViewModel()) {
                 }
 
                 items(recentTranscriptions) { transcription ->
-                    TranscriptionCard(transcription = transcription)
+                    TranscriptionCard(
+                        transcription = transcription,
+                        speakers = chunkSpeakers[transcription.chunkId] ?: emptyList(),
+                        playingProfileId = if (isPlaying) playingProfileId else null,
+                        onPlaySpeaker = { profileId ->
+                            viewModel.playSpeaker(transcription.chunkId, profileId)
+                        },
+                        onTagSpeaker = { profileId ->
+                            tagDialogProfileId = profileId
+                            tagDialogCurrentLabel = chunkSpeakers[transcription.chunkId]
+                                ?.find { it.voiceProfileId == profileId }?.profileLabel
+                            showTagDialog = true
+                        }
+                    )
                 }
             }
 

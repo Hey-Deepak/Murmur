@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
+import com.dc.murmur.core.util.stripMarkdown
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -102,14 +103,17 @@ class ClaudeCodeAnalyzer(private val settingsRepo: SettingsRepository) {
             conn.disconnect()
 
             val obj = JSONObject(responseBody)
-            obj.optString("text", null)?.takeIf { it.isNotBlank() }
+            obj.optString("text", null)?.takeIf { it.isNotBlank() }?.let { stripMarkdown(it) }
         } catch (e: Exception) {
             Log.e(TAG, "Cleanup call failed: ${e.message}")
             null
         }
     }
 
-    suspend fun analyzeRich(transcript: String): ClaudeRichAnalysis? = withContext(Dispatchers.IO) {
+    suspend fun analyzeRich(
+        transcript: String,
+        speakerContext: String? = null
+    ): ClaudeRichAnalysis? = withContext(Dispatchers.IO) {
         if (transcript.isBlank()) return@withContext null
 
         val available = isAvailable()
@@ -126,6 +130,9 @@ class ClaudeCodeAnalyzer(private val settingsRepo: SettingsRepository) {
 
             val body = JSONObject().apply {
                 put("text", transcript)
+                if (speakerContext != null) {
+                    put("speakerContext", speakerContext)
+                }
             }.toString()
 
             OutputStreamWriter(conn.outputStream).use { it.write(body) }
@@ -158,7 +165,7 @@ class ClaudeCodeAnalyzer(private val settingsRepo: SettingsRepository) {
             val score = obj.optDouble("score", 0.5).toFloat().coerceIn(0f, 1f)
             val tagsArray = obj.optJSONArray("tags") ?: JSONArray()
             val tags = (0 until tagsArray.length()).map { tagsArray.getString(it) }
-            val summary = obj.optString("summary", "")
+            val summary = stripMarkdown(obj.optString("summary", ""))
 
             // Activity
             val activityObj = obj.getJSONObject("activity")
@@ -199,6 +206,7 @@ class ClaudeCodeAnalyzer(private val settingsRepo: SettingsRepository) {
 
             val keyMoment = obj.optString("keyMoment", null)
                 ?.takeIf { it.isNotBlank() && it != "null" }
+                ?.let { stripMarkdown(it) }
 
             ClaudeRichAnalysis(
                 sentiment = sentiment,
@@ -270,7 +278,7 @@ class ClaudeCodeAnalyzer(private val settingsRepo: SettingsRepository) {
             val score = obj.optDouble("score", 0.5).toFloat().coerceIn(0f, 1f)
             val tagsArray = obj.optJSONArray("tags") ?: JSONArray()
             val tags = (0 until tagsArray.length()).map { tagsArray.getString(it) }
-            val summary = obj.optString("summary", "")
+            val summary = stripMarkdown(obj.optString("summary", ""))
 
             ClaudeAnalysis(
                 sentiment = sentiment,

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
 import android.util.Log
+import com.dc.murmur.core.util.CrashLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -57,6 +58,7 @@ class CallStateReceiver : BroadcastReceiver() {
             context.startService(intent)
         } catch (e: Exception) {
             Log.w(TAG, "Could not deliver ${intent.action} to RecordingService", e)
+            CrashLogger.logException(e, "CallStateReceiver")
         }
     }
 }

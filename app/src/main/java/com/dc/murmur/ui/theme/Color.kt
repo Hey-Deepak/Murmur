@@ -66,3 +66,15 @@ val PredictionRoutine = Color(0xFF66BB6A)
 val PredictionAnomaly = Color(0xFFFF7043)
 val PredictionRelationship = Color(0xFF42A5F5)
 val PredictionHabit = Color(0xFFAB47BC)
+
+// Speaker diarization colors (distinct, accessible on dark backgrounds)
+val SpeakerColors = listOf(
+    Color(0xFF42A5F5), // Blue
+    Color(0xFFFF7043), // Orange
+    Color(0xFF66BB6A), // Green
+    Color(0xFFAB47BC), // Purple
+    Color(0xFFFFCA28), // Yellow
+    Color(0xFF26C6DA), // Cyan
+    Color(0xFFEC407A), // Pink
+    Color(0xFF8D6E63), // Brown
+)

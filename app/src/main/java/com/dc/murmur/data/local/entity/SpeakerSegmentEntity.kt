@@ -34,5 +34,7 @@ data class SpeakerSegmentEntity(
     val speakingDurationMs: Long,
     val turnCount: Int,
     val role: String? = null,
-    val emotionalState: String? = null
+    val emotionalState: String? = null,
+    // JSON array of [startMs, endMs] pairs within the chunk audio, e.g. [[0,3200],[5100,8400]]
+    val segmentTimings: String? = null
 )

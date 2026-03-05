@@ -58,6 +58,9 @@ interface RecordingChunkDao {
     @Query("SELECT filePath FROM recording_chunks")
     suspend fun getAllFilePaths(): List<String>
 
+    @Query("SELECT * FROM recording_chunks WHERE id = :id")
+    suspend fun getById(id: Long): RecordingChunkEntity?
+
     @Query("DELETE FROM recording_chunks")
     suspend fun deleteAll()
 

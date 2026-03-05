@@ -30,9 +30,12 @@ if [ -f "$PID_FILE" ]; then
     fi
 fi
 
+# Acquire wakelock to prevent Android from killing Termux
+termux-wake-lock 2>/dev/null || true
+
 # Start bridge
 echo "Starting Claude Bridge on port $PORT..."
-nohup java -jar "$JAR" -port="$PORT" > "$LOG_FILE" 2>&1 &
+nohup java -jar "$JAR" "$PORT" > "$LOG_FILE" 2>&1 &
 BRIDGE_PID=$!
 echo "$BRIDGE_PID" > "$PID_FILE"
 

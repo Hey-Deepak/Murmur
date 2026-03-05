@@ -65,6 +65,7 @@ fun TimelineBlock(
     activity: ActivityEntity,
     topics: List<String> = emptyList(),
     speakerCount: Int? = null,
+    speakers: List<SpeakerSegmentUi> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -119,29 +120,9 @@ fun TimelineBlock(
                 }
 
                 // Speaker count badge
-                if (speakerCount != null && speakerCount > 0) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Person,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.width(2.dp))
-                            Text(
-                                text = "$speakerCount",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
+                val effectiveSpeakerCount = if (speakers.isNotEmpty()) speakers.size else speakerCount
+                if (effectiveSpeakerCount != null && effectiveSpeakerCount > 0) {
+                    SpeakerCountBadge(speakerCount = effectiveSpeakerCount)
                 }
 
                 Spacer(Modifier.width(4.dp))
@@ -164,6 +145,14 @@ fun TimelineBlock(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                // Speaker diarization breakdown
+                if (speakers.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    SpeakerRatioBar(speakers = speakers, barHeight = 8.dp)
+                    Spacer(Modifier.height(4.dp))
+                    SpeakerLegend(speakers = speakers)
                 }
 
                 if (topics.isNotEmpty()) {

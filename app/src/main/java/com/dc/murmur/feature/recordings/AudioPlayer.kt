@@ -84,6 +84,64 @@ class AudioPlayer {
         }
     }
 
+    /**
+     * Play only specific time segments of an audio file (for speaker-specific playback).
+     * @param filePath Path to the audio file
+     * @param segments List of (startMs, endMs) pairs to play sequentially
+     */
+    fun playSpeakerSegments(filePath: String, segments: List<Pair<Long, Long>>) {
+        if (segments.isEmpty()) {
+            play(filePath)
+            return
+        }
+
+        release()
+        _currentFilePath.value = filePath
+
+        try {
+            val sorted = segments.sortedBy { it.first }
+            var segmentIndex = 0
+
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(filePath)
+                prepare()
+                seekTo(sorted[0].first.toInt())
+                start()
+                setOnCompletionListener {
+                    _isPlaying.value = false
+                    _progressMs.value = 0
+                    progressJob?.cancel()
+                }
+            }
+            _durationMs.value = sorted.sumOf { (it.second - it.first).toInt() }
+            _isPlaying.value = true
+
+            // Track progress and skip between segments
+            progressJob?.cancel()
+            progressJob = scope.launch {
+                while (_isPlaying.value) {
+                    val pos = mediaPlayer?.currentPosition ?: 0
+                    _progressMs.value = pos
+                    val currentSeg = sorted.getOrNull(segmentIndex)
+                    if (currentSeg != null && pos >= currentSeg.second.toInt()) {
+                        segmentIndex++
+                        val nextSeg = sorted.getOrNull(segmentIndex)
+                        if (nextSeg != null) {
+                            mediaPlayer?.seekTo(nextSeg.first.toInt())
+                        } else {
+                            mediaPlayer?.pause()
+                            _isPlaying.value = false
+                            _progressMs.value = 0
+                        }
+                    }
+                    delay(100)
+                }
+            }
+        } catch (e: Exception) {
+            _isPlaying.value = false
+        }
+    }
+
     fun release() {
         progressJob?.cancel()
         mediaPlayer?.release()
