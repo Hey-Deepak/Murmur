@@ -1,12 +1,15 @@
 package com.dc.murmur.service
 
+import android.Manifest
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.IBinder
 import android.os.PowerManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.dc.murmur.core.constants.AppConstants
@@ -86,6 +89,22 @@ class RecordingService : LifecycleService() {
     private fun startRecordingSession() {
         Log.d(TAG, "startRecordingSession isRecording=${recordingRepo.isRecording.value}")
         if (recordingRepo.isRecording.value) return
+
+        // API 35+ requires RECORD_AUDIO to be granted before starting a
+        // foreground service with type=microphone. Bail out gracefully if
+        // the permission was revoked after boot / between sessions.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e(TAG, "RECORD_AUDIO not granted — cannot start foreground microphone service")
+            CrashLogger.logException(
+                SecurityException("RECORD_AUDIO not granted at service start"),
+                "RecordingService.permCheck"
+            )
+            stopSelf()
+            return
+        }
+
         acquireWakeLock()
         sessionStartTime = System.currentTimeMillis()
         currentSessionId = UUID.randomUUID().toString()

@@ -151,7 +151,7 @@ class PeopleRepository(
     }
 
     suspend fun enrollVoiceEmbedding(profileId: Long, embedding: FloatArray) {
-        val normalized = com.dc.murmur.ai.SpeakerDiarizer.l2Normalize(embedding)
+        val normalized = l2Normalize(embedding)
         val base64 = embeddingToBase64(normalized)
         voiceProfileDao.updateEmbedding(profileId, base64, sampleCount = 1, updatedAt = System.currentTimeMillis())
     }
@@ -175,7 +175,7 @@ class PeopleRepository(
             }
         }
 
-        val normalized = com.dc.murmur.ai.SpeakerDiarizer.l2Normalize(merged)
+        val normalized = l2Normalize(merged)
         voiceProfileDao.updateEmbedding(
             profileId,
             embeddingToBase64(normalized),
@@ -185,6 +185,14 @@ class PeopleRepository(
     }
 
     companion object {
+        fun l2Normalize(embedding: FloatArray): FloatArray {
+            var sumSq = 0f
+            for (v in embedding) sumSq += v * v
+            val norm = Math.sqrt(sumSq.toDouble()).toFloat()
+            if (norm < 1e-10f) return embedding
+            return FloatArray(embedding.size) { embedding[it] / norm }
+        }
+
         fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
             if (a.size != b.size || a.isEmpty()) return 0f
             var dotProduct = 0f

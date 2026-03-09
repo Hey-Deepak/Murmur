@@ -8,7 +8,6 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.dc.murmur.ai.SpeechModelCatalog
 import com.dc.murmur.core.constants.AppConstants
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -34,7 +33,7 @@ class SettingsRepository(private val context: Context) {
     private val keyAnalysisDays      = stringSetPreferencesKey(AppConstants.PREF_ANALYSIS_DAYS)
     private val keyRequireCharging   = booleanPreferencesKey(AppConstants.PREF_REQUIRE_CHARGING)
     private val keyMinBattery        = intPreferencesKey(AppConstants.PREF_MIN_BATTERY)
-    private val keyActiveSpeechModel = stringPreferencesKey(AppConstants.PREF_ACTIVE_SPEECH_MODEL)
+
     private val keyClaudeBridgePort  = intPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_PORT)
     private val keyClaudeBridgeAutoStart = booleanPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_AUTO_START)
     private val keyTranscriptionLanguage = stringPreferencesKey(AppConstants.PREF_TRANSCRIPTION_LANGUAGE)
@@ -96,13 +95,6 @@ class SettingsRepository(private val context: Context) {
     suspend fun getAnalysisEnabled(): Boolean = analysisEnabled.first()
     suspend fun getAutoStartOnBoot(): Boolean = autoStartOnBoot.first()
     suspend fun getWasRecording(): Boolean = wasRecording.first()
-
-    // --- Speech model selection ---
-    val activeSpeechModel: Flow<String> = ds.data.map {
-        it[keyActiveSpeechModel] ?: SpeechModelCatalog.defaultModelId
-    }
-    suspend fun getActiveSpeechModel(): String = activeSpeechModel.first()
-    suspend fun setActiveSpeechModel(modelId: String) { ds.edit { it[keyActiveSpeechModel] = modelId } }
 
     // --- Claude Bridge ---
     val claudeBridgePort: Flow<Int> = ds.data.map { it[keyClaudeBridgePort] ?: AppConstants.DEFAULT_CLAUDE_BRIDGE_PORT }

@@ -10,10 +10,6 @@ import com.dc.murmur.ai.AnalysisWorker
 import com.dc.murmur.ai.BridgeStatus
 import com.dc.murmur.ai.BridgeStatusHolder
 import com.dc.murmur.ai.BridgeUiState
-import com.dc.murmur.ai.ModelDownloadState
-import com.dc.murmur.ai.ModelManager
-import com.dc.murmur.ai.SpeechModelCatalog
-import com.dc.murmur.ai.SpeechModelInfo
 import com.dc.murmur.ai.nlp.ClaudeCodeAnalyzer
 import com.dc.murmur.core.util.TermuxBridgeManager
 import com.dc.murmur.data.local.dao.ActivityTimeBreakdown
@@ -43,7 +39,6 @@ class StatsViewModel(
     private val settingsRepo: SettingsRepository,
     private val analysisRepo: AnalysisRepository,
     private val analysisState: AnalysisStateHolder,
-    private val modelManager: ModelManager,
     private val claudeAnalyzer: ClaudeCodeAnalyzer,
     private val bridgeManager: TermuxBridgeManager,
     private val bridgeStatusHolder: BridgeStatusHolder,
@@ -110,33 +105,6 @@ class StatsViewModel(
     val unprocessedCount: StateFlow<Int> = analysisRepo.getUnprocessedCountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    // --- Speech model management ---
-    val modelCatalog: List<SpeechModelInfo> = SpeechModelCatalog.models
-
-    val modelDownloadStates: StateFlow<Map<String, ModelDownloadState>> = modelManager.downloadStates
-
-    val activeModelId: StateFlow<String> = settingsRepo.activeSpeechModel
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SpeechModelCatalog.defaultModelId)
-
-    val transcriptionLanguage: StateFlow<String> = settingsRepo.transcriptionLanguage
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "hi")
-
-    fun downloadModel(modelId: String) = viewModelScope.launch {
-        try {
-            modelManager.downloadModel(modelId)
-        } catch (e: Exception) {
-            Log.e("StatsViewModel", "Model download failed: $modelId", e)
-        }
-    }
-
-    fun setActiveModel(modelId: String) = viewModelScope.launch {
-        settingsRepo.setActiveSpeechModel(modelId)
-    }
-
-    fun deleteModel(modelId: String) {
-        modelManager.deleteModel(modelId)
-    }
-
     fun startAnalysis(context: Context) {
         analysisState.setIdle()
         AnalysisWorker.enqueueNow(context)
@@ -147,7 +115,6 @@ class StatsViewModel(
         analysisState.setIdle()
     }
 
-    fun setTranscriptionLanguage(lang: String) = viewModelScope.launch { settingsRepo.setTranscriptionLanguage(lang) }
     fun setAudioQuality(q: String) = viewModelScope.launch { settingsRepo.setAudioQuality(q) }
     fun setAutoDeleteDays(days: Int) = viewModelScope.launch { settingsRepo.setAutoDeleteDays(days) }
     fun setAutoStartOnBoot(v: Boolean) = viewModelScope.launch { settingsRepo.setAutoStartOnBoot(v) }

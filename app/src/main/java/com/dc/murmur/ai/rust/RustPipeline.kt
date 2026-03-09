@@ -5,38 +5,7 @@ import com.dc.murmur.ai.AnalysisResult
 import com.dc.murmur.ai.DiarizedSpeakerInfo
 import com.dc.murmur.ai.SpeakerResult
 import com.dc.murmur.ai.TopicResult
-import com.dc.murmur.data.repository.SettingsRepository
-import org.json.JSONArray
 import org.json.JSONObject
-
-/** Per-stage timing from a pipeline run. */
-data class StageTiming(
-    val stage: String,
-    val durationMs: Long,
-    val success: Boolean
-)
-
-/** Complete benchmark result for one chunk. */
-data class BenchmarkData(
-    val chunkId: String,
-    val audioDurationSec: Double,
-    val stages: List<StageTiming>,
-    val totalMs: Long,
-    val pipeline: String,
-    val peakMemoryKb: Long?
-)
-
-/** Side-by-side comparison for one chunk. */
-data class BenchmarkComparison(
-    val chunkId: String,
-    val audioDurationSec: Double,
-    val kotlinStages: List<StageTiming>,
-    val rustStages: List<StageTiming>,
-    val kotlinTotalMs: Long,
-    val rustTotalMs: Long,
-    val speedup: Double,
-    val rustPeakMemoryKb: Long?
-)
 
 /**
  * High-level wrapper around [RustPipelineBridge].
@@ -44,7 +13,7 @@ data class BenchmarkComparison(
  * Manages the native Pipeline lifecycle and converts JSON results
  * into Kotlin data classes matching the existing [AnalysisResult].
  */
-class RustPipeline(private val settingsRepo: SettingsRepository) {
+class RustPipeline {
 
     companion object {
         private const val TAG = "RustPipeline"
@@ -70,10 +39,27 @@ class RustPipeline(private val settingsRepo: SettingsRepository) {
      * Create and initialize the native pipeline.
      *
      * @param modelsDir path to ONNX model files on device
+     * @param nativeLibDir path to native lib directory for ORT
      * @param whisperModelPath optional path to Whisper model file
+     * @param bridgePort Claude bridge port (default 8735)
      */
-    fun initialize(modelsDir: String, nativeLibDir: String? = null, whisperModelPath: String? = null): Boolean {
-        if (!isAvailable) return false
+    /** Last error message from initialization — exposed for UI / logs. */
+    var lastError: String? = null
+        private set
+
+    fun initialize(
+        modelsDir: String,
+        nativeLibDir: String? = null,
+        whisperModelPath: String? = null,
+        bridgePort: Int = 8735
+    ): Boolean {
+        lastError = null
+
+        if (!isAvailable) {
+            lastError = "Native library not loaded: ${RustPipelineBridge.loadError ?: "unknown"}"
+            Log.e(TAG, lastError!!)
+            return false
+        }
         if (nativePtr != 0L) {
             destroy()
         }
@@ -91,20 +77,28 @@ class RustPipeline(private val settingsRepo: SettingsRepository) {
             put("whisper_model_size", "tiny")
             put("language", "en")
             put("num_threads", 2)
+            put("claude_bridge_url", "http://127.0.0.1:$bridgePort")
         }
 
         val configStr = config.toString()
         Log.i(TAG, "Creating pipeline with config: $configStr")
         nativePtr = RustPipelineBridge.nativeCreate(configStr)
         if (nativePtr == 0L) {
-            Log.e(TAG, "Failed to create native pipeline (nativeCreate returned 0)")
+            lastError = "nativeCreate returned null — bad config or native crash"
+            Log.e(TAG, lastError!!)
             return false
         }
         Log.i(TAG, "Pipeline created at ptr=$nativePtr, calling nativeInit...")
 
         val initResult = RustPipelineBridge.nativeInit(nativePtr)
         if (initResult != 0) {
-            Log.e(TAG, "nativeInit failed: error code $initResult (1=ERROR, 2=CLAUDE_AUTH, 3=CLAUDE_NOT_FOUND)")
+            lastError = when (initResult) {
+                1 -> "nativeInit failed: general error (missing model files in $modelsDir?)"
+                2 -> "nativeInit failed: Claude auth error"
+                3 -> "nativeInit failed: Claude CLI not found"
+                else -> "nativeInit failed: unknown error code $initResult"
+            }
+            Log.e(TAG, lastError!!)
             RustPipelineBridge.nativeDestroy(nativePtr)
             nativePtr = 0L
             return false
@@ -116,26 +110,29 @@ class RustPipeline(private val settingsRepo: SettingsRepository) {
 
     /** Process an audio file through the full Rust pipeline. */
     fun processChunkFull(chunkId: Long, filePath: String): AnalysisResult? {
-        if (nativePtr == 0L) return null
+        if (nativePtr == 0L) {
+            Log.e(TAG, "processChunkFull: nativePtr is 0 (pipeline not initialized)")
+            return null
+        }
+
+        val file = java.io.File(filePath)
+        if (!file.exists()) {
+            Log.e(TAG, "Chunk $chunkId: file does not exist: $filePath")
+            return null
+        }
+        if (!file.canRead()) {
+            Log.e(TAG, "Chunk $chunkId: file not readable: $filePath (exists=${file.exists()}, len=${file.length()})")
+            return null
+        }
+
+        Log.i(TAG, "Processing chunk $chunkId: $filePath (${file.length()} bytes)")
         val json = RustPipelineBridge.nativeProcess(nativePtr, chunkId.toString(), filePath)
-            ?: return null
+        if (json == null) {
+            Log.e(TAG, "Chunk $chunkId: nativeProcess returned null — native pipeline error for $filePath")
+            return null
+        }
+        Log.i(TAG, "Chunk $chunkId: got ${json.length} chars of JSON")
         return parseAnalysisResult(chunkId, json)
-    }
-
-    /** Process pre-decoded PCM through Rust stages 2-5 (hybrid mode). */
-    fun processChunkPcm(chunkId: Long, pcmFloat: FloatArray): AnalysisResult? {
-        if (nativePtr == 0L) return null
-        val json = RustPipelineBridge.nativeProcessPcm(nativePtr, chunkId.toString(), pcmFloat)
-            ?: return null
-        return parseAnalysisResult(chunkId, json)
-    }
-
-    /** Run benchmark on an audio file. Returns per-stage timing data. */
-    fun processBenchmark(chunkId: Long, filePath: String): BenchmarkData? {
-        if (nativePtr == 0L) return null
-        val json = RustPipelineBridge.nativeProcessBenchmark(nativePtr, chunkId.toString(), filePath)
-            ?: return null
-        return parseBenchmarkData(json)
     }
 
     /** Set speaker profiles for matching. */
@@ -259,37 +256,6 @@ class RustPipeline(private val settingsRepo: SettingsRepository) {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse Rust analysis JSON: ${e.message}")
-            null
-        }
-    }
-
-    private fun parseBenchmarkData(json: String): BenchmarkData? {
-        return try {
-            val obj = JSONObject(json)
-
-            val stages = mutableListOf<StageTiming>()
-            obj.optJSONArray("stages")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val s = arr.getJSONObject(i)
-                    stages.add(StageTiming(
-                        stage = s.getString("stage"),
-                        durationMs = s.getLong("duration_ms"),
-                        success = s.optBoolean("success", true)
-                    ))
-                }
-            }
-
-            BenchmarkData(
-                chunkId = obj.getString("chunk_id"),
-                audioDurationSec = obj.getDouble("audio_duration_sec"),
-                stages = stages,
-                totalMs = obj.getLong("total_ms"),
-                pipeline = obj.getString("pipeline"),
-                peakMemoryKb = if (obj.has("peak_memory_kb") && !obj.isNull("peak_memory_kb"))
-                    obj.getLong("peak_memory_kb") else null
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse benchmark JSON: ${e.message}")
             null
         }
     }
