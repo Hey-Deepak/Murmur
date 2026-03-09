@@ -6,7 +6,7 @@ import android.media.MediaRecorder
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.dc.murmur.ai.SpeakerDiarizer
+import com.dc.murmur.ai.rust.RustPipeline
 import com.dc.murmur.data.local.dao.RecordingChunkDao
 import com.dc.murmur.data.local.dao.CoSpeakerInfo
 import com.dc.murmur.data.local.dao.SpeakerSegmentWithDate
@@ -31,7 +31,7 @@ import java.nio.ByteOrder
 class PeopleViewModel(
     private val peopleRepo: PeopleRepository,
     private val insightsRepo: InsightsRepository,
-    private val speakerDiarizer: SpeakerDiarizer,
+    private val rustPipeline: RustPipeline,
     private val chunkDao: RecordingChunkDao
 ) : ViewModel() {
 
@@ -192,16 +192,14 @@ class PeopleViewModel(
 
                 _enrollmentState.value = EnrollmentState.Processing
 
-                // Initialize diarizer if needed
-                if (!speakerDiarizer.isInitialized) {
-                    speakerDiarizer.initialize()
+                // Convert 16-bit PCM bytes to float and extract embedding via Rust pipeline
+                val pcmFloat = rustPipeline.pcmBytesToFloat(pcmData)
+                val embeddingBase64 = withContext(Dispatchers.IO) {
+                    rustPipeline.extractEmbedding(pcmFloat)
                 }
 
-                val embedding = withContext(Dispatchers.IO) {
-                    speakerDiarizer.extractEmbedding(pcmData, SAMPLE_RATE)
-                }
-
-                if (embedding != null) {
+                if (embeddingBase64 != null) {
+                    val embedding = PeopleRepository.base64ToEmbedding(embeddingBase64)
                     peopleRepo.enrollVoiceEmbedding(profileId, embedding)
                     _enrollmentState.value = EnrollmentState.Success
                     // Refresh selected profile

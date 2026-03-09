@@ -85,16 +85,6 @@ dependencies {
     implementation(libs.vico.compose)
     implementation(libs.vico.compose.m3)
 
-    // WhisperKit (LiteRT-optimized Whisper)
-    implementation(libs.whisperkit)
-    implementation(libs.qnn.runtime)
-    implementation(libs.qnn.litert.delegate)
-
-    // Sherpa-ONNX (speaker diarization + embedding extraction)
-    // Download AAR from: https://github.com/k2-fsa/sherpa-onnx/releases
-    // Place sherpa-onnx-<version>.aar in app/libs/ and rename to sherpa-onnx.aar
-    implementation(files("libs/sherpa-onnx.aar"))
-
     // Test
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -1,15 +1,10 @@
 package com.dc.murmur.di
 
-import com.dc.murmur.ai.AnalysisPipeline
 import com.dc.murmur.ai.AnalysisStateHolder
 import com.dc.murmur.ai.BridgeStatusHolder
-import com.dc.murmur.ai.AudioDecoder
 import com.dc.murmur.ai.ConversationLinker
-import com.dc.murmur.ai.DiarizationModelManager
 import com.dc.murmur.ai.InsightGenerator
-import com.dc.murmur.ai.ModelManager
 import com.dc.murmur.ai.PredictionEngine
-import com.dc.murmur.ai.SpeakerDiarizer
 import com.dc.murmur.ai.nlp.ClaudeCodeAnalyzer
 import com.dc.murmur.ai.nlp.KeywordExtractor
 import com.dc.murmur.ai.nlp.TranscriptPostProcessor
@@ -30,7 +25,6 @@ import com.dc.murmur.feature.home.HomeViewModel
 import com.dc.murmur.feature.insights.InsightsViewModel
 import com.dc.murmur.feature.people.PeopleViewModel
 import com.dc.murmur.feature.recordings.RecordingsViewModel
-import com.dc.murmur.feature.stats.BenchmarkViewModel
 import com.dc.murmur.feature.stats.StatsViewModel
 import com.dc.murmur.feature.transcriptions.TranscriptionsViewModel
 import org.koin.android.ext.koin.androidContext
@@ -60,20 +54,15 @@ val utilModule = module {
 }
 
 val aiModule = module {
-    single { AudioDecoder() }
-    single { ModelManager(androidContext()) }
     single { KeywordExtractor() }
     single { ClaudeCodeAnalyzer(get()) }
     single { TranscriptPostProcessor() }
-    single { DiarizationModelManager(androidContext()) }
-    single { SpeakerDiarizer(get()) }
-    single { AnalysisPipeline(androidContext(), get(), get(), get(), get(), get(), get(), get(), get()) }
     single { AnalysisStateHolder() }
     single { BridgeStatusHolder() }
     single { InsightGenerator(get(), get(), get(), get(), get(), get()) }
     single { ConversationLinker(get(), get(), get(), get()) }
-    single { PredictionEngine(get(), get(), get()) }
-    single { RustPipeline(get()) }
+    single { PredictionEngine(get(), get(), get(), get()) }
+    single { RustPipeline() }
 }
 
 val repositoryModule = module {
@@ -91,9 +80,8 @@ val viewModelModule = module {
     viewModel { TranscriptionsViewModel(get()) }
     viewModel { InsightsViewModel(get(), get(), get(), get(), get()) }
     viewModel { PeopleViewModel(get(), get(), get(), get()) }
-    viewModel { StatsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { StatsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { CrashLogsViewModel() }
-    viewModel { BenchmarkViewModel(get(), get(), get()) }
 }
 
 val appModules = listOf(

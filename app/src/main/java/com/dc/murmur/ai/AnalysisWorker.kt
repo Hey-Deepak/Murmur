@@ -11,6 +11,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.dc.murmur.R
+import com.dc.murmur.ai.rust.ModelDownloader
+import com.dc.murmur.ai.rust.RustPipeline
+import com.dc.murmur.ai.rust.RustPipelineBridge
 import com.dc.murmur.core.constants.AppConstants
 import com.dc.murmur.core.util.BatteryUtil
 import com.dc.murmur.core.util.CrashLogger
@@ -31,7 +34,7 @@ class AnalysisWorker(
     params: WorkerParameters
 ) : CoroutineWorker(context, params), KoinComponent {
 
-    private val pipeline: AnalysisPipeline by inject()
+    private val rustPipeline: RustPipeline by inject()
     private val analysisRepo: AnalysisRepository by inject()
     private val chunkDao: RecordingChunkDao by inject()
     private val batteryUtil: BatteryUtil by inject()
@@ -43,8 +46,6 @@ class AnalysisWorker(
     private val insightGenerator: InsightGenerator by inject()
     private val predictionEngine: PredictionEngine by inject()
     private val settingsRepo: SettingsRepository by inject()
-    private val diarizationModelManager: DiarizationModelManager by inject()
-    private val speakerDiarizer: SpeakerDiarizer by inject()
 
     override suspend fun getForegroundInfo(): ForegroundInfo = createForegroundInfo("Preparing analysis...")
 
@@ -71,7 +72,7 @@ class AnalysisWorker(
         Log.w(TAG, "AnalysisWorker started")
 
         // Promote to foreground worker — prevents Android from deferring or killing
-        // the worker during long-running native operations (WhisperKit, sherpa-onnx).
+        // the worker during long-running native operations.
         try {
             setForeground(createForegroundInfo("Starting analysis..."))
         } catch (e: Exception) {
@@ -79,8 +80,6 @@ class AnalysisWorker(
         }
 
         analysisState.clearLog()
-        pipeline.setLogCallback { analysisState.addLog(it) }
-        pipeline.setStepCallback { analysisState.setStep(it) }
 
         // Wire up repositories for full analysis
         analysisRepo.setInsightsRepository(insightsRepo)
@@ -107,40 +106,58 @@ class AnalysisWorker(
                 return Result.success()
             }
 
-            // Initialize diarization models (download if needed)
+            // Initialize Rust pipeline (no-op if already warm)
             val initStart = System.currentTimeMillis()
             analysisState.setDownloading()
-            if (!diarizationModelManager.areModelsReady()) {
-                analysisState.addLog("Downloading speaker diarization models...")
-                try {
-                    diarizationModelManager.downloadModels { model, progress ->
-                        analysisState.addLog("Downloading $model: ${(progress * 100).toInt()}%")
+            analysisState.addLog("Initializing Rust pipeline...")
+
+            rustPipeline.loadLibrary()
+            if (!rustPipeline.isAvailable) {
+                val err = "Native library failed to load: ${RustPipelineBridge.loadError ?: "unknown"}"
+                Log.e(TAG, err)
+                analysisState.addLog(err)
+                analysisState.setError(err)
+                return Result.failure()
+            }
+            if (!rustPipeline.isInitialized) {
+                val modelsDir = applicationContext.filesDir.resolve("models")
+                val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
+                val bridgePort = settingsRepo.getClaudeBridgePort()
+
+                // Download models if missing
+                if (!ModelDownloader.modelsExist(modelsDir)) {
+                    analysisState.setDownloading()
+                    analysisState.addLog("Downloading AI models...")
+                    try {
+                        setForeground(createForegroundInfo("Downloading AI models..."))
+                    } catch (_: Exception) {}
+
+                    val ok = ModelDownloader.ensureModels(modelsDir) { label, downloaded, total ->
+                        val pct = if (total > 0) (downloaded * 100 / total) else 0
+                        analysisState.addLog("Downloading $label: $pct%")
                     }
-                    analysisState.addLog("Diarization models downloaded")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Diarization model download failed: ${e.message}")
-                    analysisState.addLog("Diarization models unavailable: ${e.message}")
+                    if (!ok) {
+                        val err = "Failed to download required AI models"
+                        Log.e(TAG, err)
+                        analysisState.addLog(err)
+                        analysisState.setError(err)
+                        return Result.failure()
+                    }
+                    analysisState.addLog("All models downloaded")
+                }
+
+                val success = rustPipeline.initialize(modelsDir.absolutePath, nativeLibDir, bridgePort = bridgePort)
+                if (!success) {
+                    val err = rustPipeline.lastError ?: "Rust pipeline initialization failed (unknown reason)"
+                    Log.e(TAG, err)
+                    analysisState.addLog(err)
+                    analysisState.setError(err)
+                    return Result.failure()
                 }
             }
 
-            // Initialize diarizer — skips if already initialized (singleton stays warm)
-            try {
-                speakerDiarizer.initialize()
-                if (speakerDiarizer.isInitialized) {
-                    analysisState.addLog("Speaker diarizer ready")
-                } else {
-                    analysisState.addLog("Speaker diarizer unavailable (models not downloaded)")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Speaker diarizer init failed: ${e.message}")
-                analysisState.addLog("Speaker diarizer failed: ${e.message}")
-            }
-
-            // Initialize pipeline — skips model reload if already warm (singleton)
-            analysisState.addLog("Initializing pipeline...")
-            pipeline.initialize { progress -> }
             val initMs = System.currentTimeMillis() - initStart
-            analysisState.addLog("Pipeline ready (init took ${initMs}ms)")
+            analysisState.addLog("Rust pipeline ready (init took ${initMs}ms)")
 
             val total = chunks.size
             var processed = 0
@@ -150,7 +167,6 @@ class AnalysisWorker(
                 if (isStopped) {
                     analysisState.addLog("Cancelled by user")
                     analysisState.setIdle()
-                    // Don't close pipeline — keep models warm for next run
                     return Result.failure()
                 }
 
@@ -160,7 +176,6 @@ class AnalysisWorker(
                     analysisState.addLog("Battery dropped to $currentBattery%, pausing")
                     analysisState.setError("Battery dropped to $currentBattery%, pausing analysis")
                     notificationUtil.cancelAnalysis()
-                    // Don't close pipeline — will retry soon
                     return Result.retry()
                 }
 
@@ -171,13 +186,30 @@ class AnalysisWorker(
                 } catch (_: Exception) {}
 
                 try {
-                    // NonCancellable ensures native operations (WhisperKit, sherpa-onnx)
-                    // complete before the coroutine can be cancelled. Native code cannot
-                    // be safely interrupted — freeing resources mid-call causes SIGSEGV.
+                    // NonCancellable ensures native operations complete before the
+                    // coroutine can be cancelled. Native code cannot be safely
+                    // interrupted — freeing resources mid-call causes SIGSEGV.
                     withContext(NonCancellable) {
                         val chunkStart = System.currentTimeMillis()
                         Log.w(TAG, "Processing chunk ${chunk.id}: ${chunk.filePath}")
-                        val result = pipeline.processChunk(chunk.id, chunk.filePath)
+
+                        // Skip chunks whose audio file was deleted
+                        val audioFile = java.io.File(chunk.filePath)
+                        if (!audioFile.exists()) {
+                            Log.w(TAG, "Chunk ${chunk.id}: file missing, marking processed: ${chunk.filePath}")
+                            analysisState.addLog("Chunk ${chunk.id}: file missing, skipping")
+                            chunkDao.markProcessed(chunk.id)
+                            return@withContext
+                        }
+
+                        val result = rustPipeline.processChunkFull(chunk.id, chunk.filePath)
+                        if (result == null) {
+                            Log.e(TAG, "Chunk ${chunk.id}: Rust pipeline returned null for ${chunk.filePath} (${audioFile.length()} bytes)")
+                            analysisState.addLog("Chunk ${chunk.id}: pipeline error (see logcat)")
+                            chunkDao.markProcessed(chunk.id)
+                            return@withContext
+                        }
+
                         val chunkMs = System.currentTimeMillis() - chunkStart
                         Log.w(TAG, "Chunk ${chunk.id} done in ${chunkMs}ms, saving analysis")
                         analysisState.addLog("Chunk ${chunk.id} processed in ${chunkMs / 1000}s")
@@ -228,9 +260,8 @@ class AnalysisWorker(
                 }
             }
 
-            // DON'T close pipeline — keep models warm in the Koin singleton.
-            // Next worker run skips initialization entirely (~30-60s saved).
-            // Models are freed when the process dies or on fatal errors.
+            // DON'T destroy pipeline — keep models warm in the Koin singleton.
+            // Next worker run skips initialization entirely.
 
             // If cancelled, exit before post-processing
             if (isStopped) {
@@ -271,18 +302,18 @@ class AnalysisWorker(
 
             return Result.success()
         } catch (e: CancellationException) {
-            // Worker cancelled — don't close, keep models warm for replacement worker
+            // Worker cancelled — keep pipeline warm for replacement worker
             Log.w(TAG, "AnalysisWorker cancelled")
             analysisState.addLog("Analysis cancelled")
             notificationUtil.cancelAnalysis()
             analysisState.setIdle()
             return Result.failure()
         } catch (e: Exception) {
-            // Actual error — close pipeline to start fresh next time
+            // Actual error — destroy pipeline to start fresh next time
             Log.e(TAG, "FATAL: ${e.message}", e)
             CrashLogger.logException(e, "AnalysisWorker.fatal")
             analysisState.addLog("FATAL: ${e.message}")
-            withContext(NonCancellable) { pipeline.close() }
+            withContext(NonCancellable) { rustPipeline.destroy() }
             notificationUtil.cancelAnalysis()
             analysisState.setError(e.message ?: "Analysis failed")
             return Result.failure()

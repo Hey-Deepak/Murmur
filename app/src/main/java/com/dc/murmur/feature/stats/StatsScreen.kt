@@ -8,7 +8,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,8 +20,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.dc.murmur.ai.BridgeStatus
 import com.dc.murmur.ai.BridgeUiState
-import com.dc.murmur.ai.ModelDownloadState
-import com.dc.murmur.ai.SpeechModelInfo
 import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
 import com.patrykandpatrick.vico.compose.chart.Chart
@@ -40,7 +37,6 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun StatsScreen(
     onNavigateToCrashLogs: () -> Unit = {},
-    onNavigateToBenchmark: () -> Unit = {},
     viewModel: StatsViewModel = koinViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -59,11 +55,6 @@ fun StatsScreen(
     val analysisState by viewModel.analysisUiState.collectAsState()
     val unprocessedCount by viewModel.unprocessedCount.collectAsState()
 
-    // Speech model state
-    val modelStates by viewModel.modelDownloadStates.collectAsState()
-    val activeModelId by viewModel.activeModelId.collectAsState()
-    val transcriptionLanguage by viewModel.transcriptionLanguage.collectAsState()
-
     val analysisLog by viewModel.analysisLog.collectAsState()
 
     // Trends
@@ -79,7 +70,6 @@ fun StatsScreen(
     val isTermuxInstalled by viewModel.isTermuxInstalled.collectAsState()
 
     var showTimePicker by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Stats & Settings") }) }) { pad ->
         LazyColumn(
@@ -194,21 +184,6 @@ fun StatsScreen(
                 }
             }
 
-            // --- Speech Model ---
-            item {
-                SpeechModelCard(
-                    models = viewModel.modelCatalog,
-                    modelStates = modelStates,
-                    activeModelId = activeModelId,
-                    transcriptionLanguage = transcriptionLanguage,
-                    onDownload = viewModel::downloadModel,
-                    onSetActive = viewModel::setActiveModel,
-                    onDelete = { showDeleteConfirm = it },
-                    onLanguageChange = viewModel::setTranscriptionLanguage,
-                    formatBytes = viewModel::formatBytes
-                )
-            }
-
             // --- Recording Settings ---
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -261,6 +236,13 @@ fun StatsScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Analysis", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                        // Pipeline info
+                        Text(
+                            "Pipeline: Rust (murmur-rs)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
                         // Enable toggle
                         Row(
@@ -383,36 +365,6 @@ fun StatsScreen(
                 )
             }
 
-            // --- Pipeline Benchmark ---
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNavigateToBenchmark() }
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                "Pipeline Benchmark",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Compare Kotlin vs Rust pipeline performance",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
             // --- Crash Logs ---
             item {
                 val crashCount = remember { CrashLogger.getCrashCount() }
@@ -480,184 +432,6 @@ fun StatsScreen(
             },
             text = { TimePicker(state = timePickerState) }
         )
-    }
-
-    // Delete Confirmation Dialog
-    showDeleteConfirm?.let { modelId ->
-        val modelInfo = viewModel.modelCatalog.find { it.id == modelId }
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = null },
-            title = { Text("Delete Model") },
-            text = { Text("Delete ${modelInfo?.language ?: modelId} (${modelInfo?.provider?.name ?: ""}) model? You can re-download it later.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteModel(modelId)
-                    showDeleteConfirm = null
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = null }) { Text("Cancel") }
-            }
-        )
-    }
-}
-
-@Composable
-private fun SpeechModelCard(
-    models: List<SpeechModelInfo>,
-    modelStates: Map<String, ModelDownloadState>,
-    activeModelId: String,
-    transcriptionLanguage: String,
-    onDownload: (String) -> Unit,
-    onSetActive: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    onLanguageChange: (String) -> Unit,
-    formatBytes: (Long) -> String
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Speech Model", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "Download and select a speech recognition model",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // Transcription language selector
-            Text("Transcription language", style = MaterialTheme.typography.labelMedium)
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("hi" to "Hindi", "en" to "English", "" to "Auto").forEachIndexed { index, (code, label) ->
-                    SegmentedButton(
-                        selected = transcriptionLanguage == code,
-                        onClick = { onLanguageChange(code) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = 3)
-                    ) {
-                        Text(label)
-                    }
-                }
-            }
-
-            models.forEach { model ->
-                val state = modelStates[model.id] ?: ModelDownloadState.NotDownloaded
-                val isActive = model.id == activeModelId
-
-                SpeechModelRow(
-                    model = model,
-                    state = state,
-                    isActive = isActive,
-                    onSelect = { onSetActive(model.id) },
-                    onDownload = { onDownload(model.id) },
-                    onDelete = { onDelete(model.id) },
-                    formatBytes = formatBytes
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SpeechModelRow(
-    model: SpeechModelInfo,
-    state: ModelDownloadState,
-    isActive: Boolean,
-    onSelect: () -> Unit,
-    onDownload: () -> Unit,
-    onDelete: () -> Unit,
-    formatBytes: (Long) -> String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        RadioButton(
-            selected = isActive,
-            onClick = if (state is ModelDownloadState.Ready) onSelect else null,
-            enabled = state is ModelDownloadState.Ready
-        )
-
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(model.language, style = MaterialTheme.typography.bodyMedium)
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier
-                ) {
-                    Text(
-                        model.provider.name,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-            Text(
-                "~${formatBytes(model.sizeBytes)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // Download progress
-            if (state is ModelDownloadState.Downloading) {
-                LinearProgressIndicator(
-                    progress = { state.progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                )
-            }
-
-            // Error message
-            if (state is ModelDownloadState.Error) {
-                Text(
-                    state.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 2
-                )
-            }
-        }
-
-        // Action button
-        when {
-            isActive && state is ModelDownloadState.Ready -> {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        "Active",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            }
-            state is ModelDownloadState.Ready && !isActive -> {
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete model",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-            state is ModelDownloadState.NotDownloaded || state is ModelDownloadState.Error -> {
-                TextButton(onClick = onDownload) {
-                    Text(if (state is ModelDownloadState.Error) "Retry" else "Get")
-                }
-            }
-            state is ModelDownloadState.Downloading -> {
-                Text(
-                    "${(state.progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
     }
 }
 
@@ -823,4 +597,3 @@ private fun ClaudeBridgeCard(
         }
     }
 }
-

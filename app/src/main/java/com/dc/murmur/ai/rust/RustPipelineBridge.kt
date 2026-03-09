@@ -50,14 +50,6 @@ object RustPipelineBridge {
     @JvmStatic
     external fun nativeProcess(ptr: Long, chunkId: String, filePath: String): String?
 
-    /** Process pre-decoded PCM (mono f32 16kHz) through stages 2-5. Returns JSON or null. */
-    @JvmStatic
-    external fun nativeProcessPcm(ptr: Long, chunkId: String, pcmData: FloatArray): String?
-
-    /** Process a chunk and return benchmark JSON with per-stage timings. */
-    @JvmStatic
-    external fun nativeProcessBenchmark(ptr: Long, chunkId: String, filePath: String): String?
-
     /** Set speaker profiles for matching. JSON array of SpeakerProfile. Returns 0 on success. */
     @JvmStatic
     external fun nativeSetProfiles(ptr: Long, json: String): Int

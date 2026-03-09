@@ -1,8 +1,12 @@
 package com.dc.murmur.service
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.util.Log
+import androidx.core.content.ContextCompat
 import com.dc.murmur.data.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +20,14 @@ class BootReceiver : BroadcastReceiver(), KoinComponent {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+
+        // Don't start foreground microphone service without RECORD_AUDIO
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w("BootReceiver", "RECORD_AUDIO not granted — skipping auto-start")
+            return
+        }
 
         CoroutineScope(Dispatchers.IO).launch {
             val autoStart = settingsRepo.getAutoStartOnBoot()
