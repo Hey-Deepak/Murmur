@@ -37,6 +37,7 @@ class SettingsRepository(private val context: Context) {
     private val keyClaudeBridgePort  = intPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_PORT)
     private val keyClaudeBridgeAutoStart = booleanPreferencesKey(AppConstants.PREF_CLAUDE_BRIDGE_AUTO_START)
     private val keyTranscriptionLanguage = stringPreferencesKey(AppConstants.PREF_TRANSCRIPTION_LANGUAGE)
+    private val keyAnthropicApiKey = stringPreferencesKey("anthropic_api_key")
 
     // --- Recording state ---
     val wasRecording: Flow<Boolean> = ds.data.map { it[keyWasRecording] ?: false }
@@ -108,4 +109,9 @@ class SettingsRepository(private val context: Context) {
     val transcriptionLanguage: Flow<String> = ds.data.map { it[keyTranscriptionLanguage] ?: "hi" }
     suspend fun getTranscriptionLanguage(): String = transcriptionLanguage.first()
     suspend fun setTranscriptionLanguage(language: String) { ds.edit { it[keyTranscriptionLanguage] = language } }
+
+    // --- Anthropic API Key (direct API, no bridge needed) ---
+    val anthropicApiKey: Flow<String?> = ds.data.map { it[keyAnthropicApiKey] }
+    suspend fun getAnthropicApiKey(): String? = anthropicApiKey.first()
+    suspend fun setAnthropicApiKey(key: String?) { ds.edit { if (key != null) it[keyAnthropicApiKey] = key else it.remove(keyAnthropicApiKey) } }
 }

@@ -146,7 +146,9 @@ class AnalysisWorker(
                     analysisState.addLog("All models downloaded")
                 }
 
-                val success = rustPipeline.initialize(modelsDir.absolutePath, nativeLibDir, bridgePort = bridgePort)
+                val language = settingsRepo.getTranscriptionLanguage()
+                val apiKey = settingsRepo.getAnthropicApiKey()
+                val success = rustPipeline.initialize(modelsDir.absolutePath, nativeLibDir, bridgePort = bridgePort, language = language, anthropicApiKey = apiKey)
                 if (!success) {
                     val err = rustPipeline.lastError ?: "Rust pipeline initialization failed (unknown reason)"
                     Log.e(TAG, err)

@@ -51,7 +51,9 @@ class RustPipeline {
         modelsDir: String,
         nativeLibDir: String? = null,
         whisperModelPath: String? = null,
-        bridgePort: Int = 8735
+        bridgePort: Int = 8735,
+        language: String = "en",
+        anthropicApiKey: String? = null
     ): Boolean {
         lastError = null
 
@@ -75,9 +77,10 @@ class RustPipeline {
             put("ort_lib_path", ortLibPath)
             if (whisperModelPath != null) put("whisper_model_path", whisperModelPath)
             put("whisper_model_size", "tiny")
-            put("language", "en")
+            put("language", language)
             put("num_threads", 2)
             put("claude_bridge_url", "http://127.0.0.1:$bridgePort")
+            if (anthropicApiKey != null) put("anthropic_api_key", anthropicApiKey)
         }
 
         val configStr = config.toString()
