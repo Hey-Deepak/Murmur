@@ -82,7 +82,9 @@ fun TranscriptionCard(
 ) {
     val summary = parseSummary(transcription.keywords)
     val tags = parseTags(transcription.keywords)
-    val isClaudePowered = transcription.modelUsed.contains("claude-code")
+    val topics = parseJsonStringArray(transcription.topicsSummary)
+    val behavioralTags = parseJsonStringArray(transcription.behavioralTags)
+    val isClaudePowered = transcription.modelUsed.contains("claude") || transcription.modelUsed.contains("bridge")
     var expanded by remember { mutableStateOf(false) }
 
     val (sentimentColor, sentimentBg) = when (transcription.sentiment) {
@@ -156,7 +158,93 @@ fun TranscriptionCard(
                     }
                 }
 
-                // Tags display
+                // Activity type + topics row
+                if (transcription.activityType != null || topics.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Activity type chip
+                        if (transcription.activityType != null) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = transcription.activityType.replace("_", " "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        // Topic chips
+                        topics.forEach { topic ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            ) {
+                                Text(
+                                    text = topic,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Behavioral tags
+                if (behavioralTags.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        behavioralTags.forEach { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                            ) {
+                                Text(
+                                    text = tag,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Key moment highlight
+                if (!transcription.keyMoment.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = transcription.keyMoment,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                // Tags display (keywords from old format)
                 if (tags.isNotEmpty()) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -178,7 +266,7 @@ fun TranscriptionCard(
                     }
                 }
 
-                // Conversation Analysis section
+                // Conversation Analysis section (summary from keywords JSON object format)
                 if (summary.isNotBlank()) {
                     Column(
                         modifier = Modifier
@@ -386,12 +474,29 @@ private fun formatSpeakerDuration(ms: Long): String {
     return if (m > 0) "%dm %02ds".format(m, s % 60) else "%ds".format(s)
 }
 
-/** Extracts tags array from keywords JSON. Returns empty list if missing or invalid. */
+/** Extracts tags array from keywords JSON. Handles both {"tags":[...]} and plain ["..."] formats. */
 private fun parseTags(json: String): List<String> {
     if (json.isBlank()) return emptyList()
     return try {
         val obj = JSONObject(json)
         val arr = obj.optJSONArray("tags") ?: return emptyList()
+        (0 until arr.length()).map { arr.getString(it) }
+    } catch (e: Exception) {
+        // Try plain JSON array format: ["tag1","tag2"]
+        try {
+            val arr = org.json.JSONArray(json)
+            (0 until arr.length()).map { arr.getString(it) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+}
+
+/** Parse a nullable JSON string array like '["a","b"]' into a list. */
+private fun parseJsonStringArray(json: String?): List<String> {
+    if (json.isNullOrBlank()) return emptyList()
+    return try {
+        val arr = org.json.JSONArray(json)
         (0 until arr.length()).map { arr.getString(it) }
     } catch (e: Exception) {
         emptyList()
