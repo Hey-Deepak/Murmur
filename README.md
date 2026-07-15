@@ -52,10 +52,31 @@ UI — Home · Recordings · Insights · People · Stats
 |---|---|
 | `app` | The Android app (Kotlin, Jetpack Compose) |
 | `claude-bridge` | Ktor HTTP server that runs inside Termux and wraps the Claude CLI, exposed to the app on `127.0.0.1:8735` |
+| `murmur-rs` | Git submodule — [Murmur-rs](https://github.com/Hey-Deepak/Murmur-rs), the native Rust analysis pipeline (see below) |
 
-### Rust pipeline (experimental)
+### Rust pipeline — `feat/murmur-rs`
 
-The `feat/murmur-rs` branch integrates [Murmur-rs](https://github.com/Hey-Deepak/Murmur-rs), a native Rust rewrite of the analysis pipeline (symphonia + whisper-rs + ONNX diarization) consumed over JNI, with an in-app benchmark screen comparing it against the Kotlin pipeline.
+[Murmur-rs](https://github.com/Hey-Deepak/Murmur-rs) (vendored here as the `murmur-rs` submodule) is a native Rust rewrite of the entire analysis pipeline, built as a `cdylib` and consumed by the app over JNI. The `feat/murmur-rs` branch replaces the Kotlin pipeline with it entirely.
+
+All five stages run natively:
+
+| Stage | Rust implementation |
+|---|---|
+| Decode | symphonia (M4A/AAC → PCM) |
+| Diarize | ONNX speaker embeddings via `ort` |
+| Transcribe | whisper-rs (whisper.cpp bindings) |
+| Cleanup | Claude CLI subprocess |
+| Analyze | Claude CLI subprocess |
+
+The library exposes C-compatible `murmur_pipeline_*` functions plus JNI wrappers (`src/jni.rs`); on the Kotlin side, `RustPipelineBridge.kt` declares the native methods and `RustPipeline.kt` wraps them. The branch evolved in stages: first a JNI bridge with an in-app benchmark screen comparing Rust vs Kotlin per stage (on a OnePlus test device, decode ran ~73× faster, diarization ~4×, transcription ~1.1×), then the Kotlin pipeline was removed in favor of Rust-only.
+
+Cross-compile with [cargo-ndk](https://github.com/bbqsrc/cargo-ndk):
+
+```bash
+cd murmur-rs
+cargo ndk -t arm64-v8a build --release --features android
+# copy target/aarch64-linux-android/release/libmurmur_rs.so to app/src/main/jniLibs/arm64-v8a/
+```
 
 ## Tech stack
 
@@ -71,8 +92,12 @@ The `feat/murmur-rs` branch integrates [Murmur-rs](https://github.com/Hey-Deepak
 ### Build the app
 
 ```bash
+git clone --recurse-submodules https://github.com/Hey-Deepak/Murmur.git
+cd Murmur
 ./gradlew :app:assembleDebug
 ```
+
+(The `murmur-rs` submodule is only needed for the `feat/murmur-rs` Rust pipeline; `master` builds without it.)
 
 Open in Android Studio and run on a device (a real device is required — the whole point is the microphone and battery behavior). Grant microphone and notification permissions on first launch.
 
